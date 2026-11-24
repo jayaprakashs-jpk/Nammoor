@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Nammoor</string>
+    <string name="title_activity_main">Nammoor</string>
+    <string name="package_name">com.nammoor.app</string>
+    <string name="custom_url_scheme">com.nammoor.app</string>
+</resources>
