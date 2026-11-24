@@ -44,9 +44,17 @@ const ROOMS = [
   { id: "room-family", name: "Test Kudumbam", kind: "family", last_message_at: "2026-11-24T08:00:00Z" },
   { id: "room-grp", name: "Pongal plan", kind: "group", last_message_at: null },
 ];
+const saved = [];
+const saves = {};
 const messages = [
   { id: "m1", room_id: "room-family", sender_id: "22222222-2222-4222-8222-222222222222", body: "Vanakkam all", created_at: "2026-11-24T07:00:00Z", edited_at: null, deleted_at: null },
 ];
+
+function rowOf(g) {
+  return { id: g.id, family_id: "fam1", user_id: g.uid, managed_by: ME, full_name: g.name, initials: null, nickname: null, name_native: null, gender: g.g,
+        birth_date: g.dob, birth_precision: g.dobp, ...(saves[g.id] || {}), birth_time: null, birth_place: null, birth_order: g.ord, is_living: g.alive, death_date: null, death_precision: "unknown",
+        native_place: null, current_city: null, state_code: null, country_code: null, photo_path: null, history: null, created_by: ME, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" };
+}
 
 async function mockSupabase(page, log) {
   await page.route(/supabase\.co/, async (route) => {
@@ -60,13 +68,19 @@ async function mockSupabase(page, log) {
     if (method === "OPTIONS") return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "*" } });
     if (p.endsWith("/rest/v1/family_members") && url.searchParams.get("select")?.startsWith("role")) return json([{ role: "owner", families: { id: "fam1", name: "Test Kudumbam", native_place: "Thanjavur" } }]);
     if (p.endsWith("/rest/v1/family_members") && url.searchParams.get("select")?.startsWith("user_id")) return json([{ user_id: ME, role: "owner", profiles: { display_name: "Karthik" } }]);
+    if (p.endsWith("/rest/v1/persons") && method === "PATCH") {
+      const id = (url.searchParams.get("id") || "").replace("eq.", "");
+      const patch = JSON.parse(req.postData());
+      saved.push(patch);
+      const g = graph.persons.find((x) => x.id === id);
+      if (g) { if ("birth_date" in patch) g.dob = patch.birth_date; if ("birth_precision" in patch) g.dobp = patch.birth_precision; saves[id] = { ...(saves[id] || {}), ...patch }; }
+      return json(g ? [rowOf(g)] : [], 200);
+    }
     if (p.endsWith("/rest/v1/persons")) {
       const id = (url.searchParams.get("id") || "").replace("eq.", "");
       const g = graph.persons.find((x) => x.id === id);
       if (!g) return json(single ? null : [], single ? 406 : 200);
-      const row = { id: g.id, family_id: "fam1", user_id: g.uid, managed_by: ME, full_name: g.name, initials: null, nickname: null, name_native: null, gender: g.g,
-        birth_date: g.dob, birth_precision: g.dobp, birth_time: null, birth_place: null, birth_order: g.ord, is_living: g.alive, death_date: null, death_precision: "unknown",
-        native_place: null, current_city: null, state_code: null, country_code: null, photo_path: null, history: null, created_by: ME, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z" };
+      const row = rowOf(g);
       return json(single ? row : [row]);
     }
     if (p.endsWith("/rpc/family_graph")) return json(graph);
@@ -187,6 +201,39 @@ async function mockSupabase(page, log) {
     await page.getByLabel("Date of birth known as").selectOption("approx");
     if ((await page.getByLabel("Date of birth", { exact: true }).inputValue()) !== "1985") throw new Error("year lost when switching to About");
     ok("DOB year box: digits stay, letters ignored, 4 digit limit, numeric keypad");
+
+    // A half-typed year must not be saved as "nothing"
+    await page.getByLabel("Date of birth", { exact: true }).fill("198");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("alert").filter({ hasText: "4-digit year" }).first().waitFor();
+    if (saved.length && saved.at(-1)?.birth_date === null) throw new Error("half-typed year was sent to the server");
+    const sentBefore = saved.length;
+    // Cancel with unsaved changes asks first, and No keeps the form
+    let asked = "";
+    page.once("dialog", (d) => { asked = d.message(); d.dismiss(); });
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    if (!/Leave without saving/.test(asked)) throw new Error("no unsaved-changes warning");
+    await page.getByRole("button", { name: "Save", exact: true }).waitFor();
+    await page.getByLabel("Date of birth", { exact: true }).fill("1985");
+    if (saved.length !== sentBefore) throw new Error("something was sent while the year was incomplete");
+    ok("half-typed year is blocked with a visible message; Cancel warns about unsaved changes");
+
+    // Save the year, leave, come back: it must still be there
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Born").waitFor();
+    const born = await page.locator("dl").innerText();
+    await page.getByText("Saved ✓").first().waitFor();
+    if (!/1985/.test(born)) throw new Error("after save, About shows: " + born.replace(/\n/g, " | "));
+    if (saved.at(-1)?.birth_date !== "1985-01-01" || saved.at(-1)?.birth_precision !== "approx") throw new Error("payload: " + JSON.stringify(saved.at(-1)));
+    await page.goto(BASE + "/tree/");
+    await page.getByRole("heading", { name: "Your generation" }).waitFor();
+    await page.goto(BASE + "/person/?id=me");
+    await page.getByText("Born").waitFor();
+    if (!/around 1985/.test(await page.locator("dl").innerText())) throw new Error("reopened profile lost the year");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    if ((await page.getByLabel("Date of birth known as").inputValue()) !== "approx") throw new Error("precision not pre-filled");
+    if ((await page.getByLabel("Date of birth", { exact: true }).inputValue()) !== "1985") throw new Error("year not pre-filled");
+    ok("DOB year saved, shown after save, still there after leaving and reopening, edit form pre-filled");
 
     await page.goto(BASE + "/chat/?family=fam1");
     await page.getByText("Family chat").waitFor();

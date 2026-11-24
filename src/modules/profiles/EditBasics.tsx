@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { sb, type Enums } from "@/shared/lib/supabase";
 import { friendlyError } from "@/shared/lib/errors";
 import { Button, ErrorText, Field, Input, Section, Select, TextArea } from "@/shared/ui/form";
 import { DateInput } from "./DateInput";
+import { toast } from "@/shared/ui/Toast";
 import { assertUpdated, type Person } from "./api";
 import { COUNTRIES, GENDERS, INDIAN_STATES } from "./places";
 
@@ -18,16 +19,36 @@ type Form = Pick<Person, (typeof EDITABLE)[number]>;
 // Keep spaces while typing. Trim only when saving.
 const blankToNull = (v: string) => (v.trim() === "" ? null : v);
 
-export function EditBasics({ person, onSaved }: { person: Person; onSaved: () => void }) {
+export const BASICS_FORM_ID = "basics-form";
+
+const needsDate = (p: string) => p !== "unknown";
+
+export function EditBasics({ person, onSaved, onDirty }: { person: Person; onSaved: (row: Person) => void; onDirty?: (dirty: boolean) => void }) {
   const [f, setF] = useState<Form>(() => Object.fromEntries(EDITABLE.map((k) => [k, person[k]])) as Form);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const start = useRef(JSON.stringify(f));
+  useEffect(() => {
+    onDirty?.(JSON.stringify(f) !== start.current);
+  }, [f, onDirty]);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
     setError("");
+    // Checked here, not by the browser: Android's own form check blocks Save
+    // without showing anything.
+    const problem =
+      (needsDate(f.birth_precision) && !f.birth_date ? "Type the full 4-digit year of birth, or choose Unknown." : "") ||
+      (!f.is_living && needsDate(f.death_precision) && !f.death_date ? "Type the full 4-digit year of death, or choose Unknown." : "") ||
+      (f.birth_order != null && (f.birth_order < 1 || f.birth_order > 30) ? "Birth order must be between 1 and 30." : "") ||
+      (!f.full_name.trim() ? "Name cannot be empty." : "");
+    if (problem) {
+      setError(problem);
+      toast(problem, "error");
+      return;
+    }
+    setBusy(true);
     const trimmed = Object.fromEntries(
       Object.entries(f).map(([k, v]) => [k, typeof v === "string" ? v.trim() || null : v]),
     ) as Form;
@@ -38,19 +59,23 @@ export function EditBasics({ person, onSaved }: { person: Person; onSaved: () =>
       death_precision: f.is_living ? "unknown" : f.death_precision,
       state_code: f.country_code === "IN" ? f.state_code : null,
     };
-    const { data, error } = await sb().from("persons").update(patch).eq("id", person.id).select("id");
+    const { data, error } = await sb().from("persons").update(patch).eq("id", person.id).select("*");
     setBusy(false);
     try {
       if (error) throw error;
       assertUpdated(data);
-      onSaved();
+      start.current = JSON.stringify(f);
+      onDirty?.(false);
+      onSaved(data![0] as Person);
     } catch (err) {
-      setError(friendlyError(err));
+      const msg = friendlyError(err);
+      setError(msg);
+      toast(`Not saved. ${msg}`, "error");
     }
   }
 
   return (
-    <form onSubmit={save} className="flex flex-col gap-4">
+    <form id={BASICS_FORM_ID} onSubmit={save} noValidate className="flex flex-col gap-4">
       <Section title="Name">
         <Field label="Full name">
           <Input required maxLength={120} value={f.full_name} onChange={(e) => set("full_name", e.target.value)} />
@@ -129,7 +154,7 @@ export function EditBasics({ person, onSaved }: { person: Person; onSaved: () =>
       </Section>
 
       <ErrorText>{error}</ErrorText>
-      <Button type="submit" busy={busy} disabled={!f.full_name.trim()}>Save</Button>
+      <Button type="submit" busy={busy} disabled={!f.full_name.trim()}>Save changes</Button>
     </form>
   );
 }

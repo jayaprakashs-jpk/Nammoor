@@ -15,7 +15,8 @@ import { ModuleLoading } from "@/shared/ui/ModuleLoading";
 import { Button, ErrorText, Section } from "@/shared/ui/form";
 import { canEdit, loadPerson, ownsPrivate, type PersonBundle } from "./api";
 import { PhotoPicker } from "./PhotoPicker";
-import { EditBasics } from "./EditBasics";
+import { BASICS_FORM_ID, EditBasics } from "./EditBasics";
+import { Toaster, toast } from "@/shared/ui/Toast";
 import { ContactEditor, EducationEditor, WorkEditor } from "./Details";
 import { PrivateEditor, SharedPrivateView } from "./PrivatePanel";
 import { Relatives } from "./Relatives";
@@ -40,6 +41,7 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
   const router = useRouter();
   const [bundle, setBundle] = useState<PersonBundle | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
   const [style] = useRelationStyle(userId);
 
@@ -72,6 +74,19 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
   const saved = () => {
     invalidateGraph(p.family_id);
     reload(true);
+    toast("Saved ✓");
+  };
+  // Show the new values at once, then refresh everything (tree lists too).
+  const savedBasics = (row: typeof p) => {
+    setBundle((b) => (b ? { ...b, person: row } : b));
+    setDirty(false);
+    setEditing(false);
+    saved();
+  };
+  const leaveEditing = () => {
+    if (dirty && !window.confirm("Leave without saving? Your changes will be lost.")) return;
+    setDirty(false);
+    setEditing(false);
   };
 
   async function remove() {
@@ -101,15 +116,21 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
 
   return (
     <div className="flex flex-1 flex-col">
+      <Toaster />
       <Header
         title={p.full_name}
         sub={p.name_native ?? undefined}
         back="/tree/"
         right={
           editable ? (
-            <button onClick={() => setEditing((e) => !e)} className="rounded-lg border border-brand px-3 py-2 text-sm text-brand">
-              {editing ? "Done" : "Edit"}
-            </button>
+            editing ? (
+              <span className="flex gap-2">
+                <button type="button" onClick={leaveEditing} className="min-h-10 rounded-lg border border-black/20 px-3 text-sm dark:border-white/25">Cancel</button>
+                <button type="submit" form={BASICS_FORM_ID} className="min-h-10 rounded-lg bg-brand px-4 text-sm font-medium text-white">Save</button>
+              </span>
+            ) : (
+              <button onClick={() => setEditing(true)} className="min-h-10 rounded-lg border border-brand px-3 text-sm text-brand">Edit</button>
+            )
           ) : null
         }
       />
@@ -139,7 +160,7 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
 
         {editing ? (
           <>
-            <EditBasics person={p} onSaved={() => { saved(); setEditing(false); }} />
+            <EditBasics person={p} onSaved={savedBasics} onDirty={setDirty} />
             <ContactEditor person={p} contact={bundle.contact} onSaved={saved} />
             <EducationEditor person={p} rows={bundle.education} onSaved={saved} />
             <WorkEditor person={p} rows={bundle.occupations} onSaved={saved} />
