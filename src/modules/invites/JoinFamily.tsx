@@ -10,7 +10,7 @@ import { invalidateGraph } from "@/shared/lib/graphStore";
 import { friendlyError } from "@/shared/lib/errors";
 import { Header } from "@/shared/ui/Header";
 import { Button, ErrorText, Field, Input } from "@/shared/ui/form";
-import { extractCode } from "./code";
+import { extractCode, prettyCode } from "./code";
 
 type Preview = DB["Functions"]["invite_preview"]["Returns"][number];
 
@@ -29,11 +29,12 @@ export function JoinFamily({ initialCode }: { initialCode: string }) {
   const [error, setError] = useState("");
   const code = extractCode(text);
 
+  // Preview needs sign-in (it counts wrong guesses per account).
   useEffect(() => {
-    if (!code) return;
+    if (!code || !userId) return;
     let alive = true;
     sb()
-      .rpc("invite_preview", { p_token: code })
+      .rpc("invite_preview", { p_code: code })
       .then(({ data, error }) => {
         if (!alive) return;
         if (error) return setError(friendlyError(error));
@@ -42,33 +43,35 @@ export function JoinFamily({ initialCode }: { initialCode: string }) {
     return () => {
       alive = false;
     };
-  }, [code]);
+  }, [code, userId]);
 
   async function join() {
     if (!code) return;
     setBusy(true);
     setError("");
-    const { data, error } = await sb().rpc("accept_invite", { p_token: code });
+    const { data, error } = await sb().rpc("accept_invite", { p_code: code });
     setBusy(false);
-    if (error || !data) return setError(friendlyError(error));
+    if (error) return setError(friendlyError(error));
+    if (!data) return setError("This code is wrong, expired or already used. Ask your relative for a new one.");
     setCurrentFamilyId(data);
     invalidateGraph(data);
     router.replace("/tree/");
   }
 
   // Only show the preview that belongs to the code currently typed.
-  const shown = code && result?.code === code ? result.preview : undefined;
+  const shown = userId && code && result?.code === code ? result.preview : undefined;
 
   return (
     <div className="flex flex-1 flex-col">
       <Header title="Join a family" sub="குடும்பத்தில் சேர" back={userId ? "/tree/" : "/"} />
       <main className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
-        <Field label="Invite code" hint="Paste the code or the whole message your relative sent">
-          <Input value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" spellCheck={false} />
+        <Field label="Invite code" hint="Type the 8 letter code, or paste the whole message your relative sent">
+          <Input value={text} onChange={(e) => setText(e.target.value)} autoComplete="off" autoCapitalize="characters"
+            spellCheck={false} placeholder="ABCD-EFGH" className="text-center text-xl tracking-widest" />
         </Field>
 
         {text && !code && <p className="text-sm opacity-70">That doesn&apos;t look like an invite code yet.</p>}
-        {code && shown === null && (
+        {code && userId && shown === null && (
           <ErrorText>This invite is wrong, expired or already used. Ask your relative for a new one.</ErrorText>
         )}
         {shown && (
@@ -83,15 +86,12 @@ export function JoinFamily({ initialCode }: { initialCode: string }) {
         )}
 
         <ErrorText>{error}</ErrorText>
-        {shown && !loading && (
-          userId ? (
-            <Button onClick={join} busy={busy}>Join {shown.family_name}</Button>
-          ) : (
-            <Link href={`/login/?next=${encodeURIComponent(`/invite/?t=${code}`)}`}
-              className="min-h-12 rounded-lg bg-brand px-4 py-3 text-center font-medium text-white">
-              Sign in to join
-            </Link>
-          )
+        {shown && <Button onClick={join} busy={busy}>Join {shown.family_name}</Button>}
+        {code && !userId && !loading && (
+          <Link href={`/login/?next=${encodeURIComponent(`/invite/?t=${code}`)}`}
+            className="min-h-12 rounded-lg bg-brand px-4 py-3 text-center font-medium text-white">
+            Sign in to use code {prettyCode(code)}
+          </Link>
         )}
       </main>
     </div>

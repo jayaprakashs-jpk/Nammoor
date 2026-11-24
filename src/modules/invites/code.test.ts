@@ -1,17 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { extractCode, shareMessage } from "./code";
-
-const CODE = "a".repeat(24) + "0123456789abcdef01234567";
+import { extractCode, prettyCode, shareMessage } from "./code";
 
 describe("extractCode", () => {
-  it("takes a bare code", () => expect(extractCode(CODE)).toBe(CODE));
+  it("takes a bare code in any style", () => {
+    expect(extractCode("K7MQ4XPA")).toBe("K7MQ4XPA");
+    expect(extractCode("k7mq-4xpa")).toBe("K7MQ4XPA");
+    expect(extractCode("  K7MQ 4XPA ")).toBe("K7MQ4XPA");
+  });
   it("finds the code in a pasted WhatsApp message", () => {
-    expect(extractCode(shareMessage("Ramasamy", CODE, "https://x.app/invite/?t=" + CODE, 7))).toBe(CODE);
+    const msg = shareMessage("Ramasamy Kudumbam", "K7MQ4XPA", "https://x.app/invite/?t=K7MQ4XPA", 48);
+    expect(extractCode(msg)).toBe("K7MQ4XPA");
+    expect(extractCode(msg.replace(/Open:.*\n/, ""))).toBe("K7MQ4XPA");
   });
-  it("handles upper case and spaces", () => expect(extractCode(`  ${CODE.toUpperCase()} `)).toBe(CODE));
-  it("rejects short or long hex", () => {
-    expect(extractCode(CODE.slice(1))).toBeNull();
-    expect(extractCode(CODE + "a")).toBeNull();
+  it("reads a link", () => expect(extractCode("https://x.app/invite/?t=k7mq-4xpa")).toBe("K7MQ4XPA"));
+  it("never treats an ordinary word as a code", () => {
+    expect(extractCode("Please join RELATIVES today")).toBeNull();
+    expect(extractCode("FAMILYTREE")).toBeNull();
   });
-  it("rejects junk", () => expect(extractCode("hello")).toBeNull());
+  it("rejects letters that are not in the alphabet (I and O) and wrong length", () => {
+    expect(extractCode("K7MQ4XPI")).toBeNull();
+    expect(extractCode("K7MQ4XP")).toBeNull();
+    expect(extractCode("K7MQ4XPAA")).toBeNull();
+    expect(extractCode("")).toBeNull();
+  });
+  it("pretty prints", () => expect(prettyCode("K7MQ4XPA")).toBe("K7MQ-4XPA"));
 });

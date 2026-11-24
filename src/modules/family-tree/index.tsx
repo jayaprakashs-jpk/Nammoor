@@ -1,20 +1,44 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { sb, type Enums } from "@/shared/lib/supabase";
-import { byAge, generationLabel, generations, type Graph } from "@/shared/lib/graph";
+import { generations, type Graph } from "@/shared/lib/graph";
 import { getGraph } from "@/shared/lib/graphStore";
-import { ageFrom, formatAge } from "@/shared/lib/age";
-import { getCurrentFamilyId, setCurrentFamilyId } from "@/shared/lib/storage";
+import { getCurrentFamilyId, readLocal, setCurrentFamilyId, writeLocal } from "@/shared/lib/storage";
+import { useRelationStyle } from "@/shared/lib/prefs";
 import { friendlyError } from "@/shared/lib/errors";
+import { computeRelations, STYLE_NAMES, type RelationStyle } from "@/modules/relations/engine";
 import { RequireAuth } from "@/shared/ui/RequireAuth";
 import { Header } from "@/shared/ui/Header";
-import { Avatar, signedPhotoUrls } from "@/shared/ui/Avatar";
+import { signedPhotoUrls } from "@/shared/ui/Avatar";
 import { Button, ErrorText, Input, Select } from "@/shared/ui/form";
 import { ModuleLoading } from "@/shared/ui/ModuleLoading";
 import { CreateFamily } from "./CreateFamily";
+import ListView from "./views/ListView";
+
+// Each picture loads only when opened.
+const ChartView = dynamic(() => import("./views/ChartView"), { ssr: false, loading: ModuleLoading });
+const RoundView = dynamic(() => import("./views/RoundView"), { ssr: false, loading: ModuleLoading });
+const CloseView = dynamic(() => import("./views/CloseView"), { ssr: false, loading: ModuleLoading });
+
+type View = "list" | "tree" | "round" | "close";
+type Filter = "all" | "paternal" | "maternal";
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: "list", label: "List" },
+  { id: "tree", label: "Tree" },
+  { id: "round", label: "Round" },
+  { id: "close", label: "Close" },
+];
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "Everyone" },
+  { id: "paternal", label: "Father's side" },
+  { id: "maternal", label: "Mother's side" },
+];
+const isView = (v: string | null): v is View => VIEWS.some((x) => x.id === v);
 
 interface MyFamily {
   id: string;
@@ -47,6 +71,18 @@ function TreeScreen({ userId }: { userId: string }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [view, setViewState] = useState<View>(() => {
+    const v = readLocal("nammoor.view");
+    return isView(v) ? v : "list";
+  });
+  const [filter, setFilter] = useState<Filter>("all");
+  const [viewpoint, setViewpoint] = useState<string | null>(null);
+  const [style, setStyle] = useRelationStyle(userId);
+
+  const setView = (v: View) => {
+    setViewState(v);
+    writeLocal("nammoor.view", v);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -58,7 +94,6 @@ function TreeScreen({ userId }: { userId: string }) {
     };
   }, [userId, reloadKey]);
 
-  // Chosen family: the one picked now, else last used, else first.
   const familyId = useMemo(() => {
     if (!families?.length) return null;
     const want = picked ?? getCurrentFamilyId();
@@ -88,20 +123,33 @@ function TreeScreen({ userId }: { userId: string }) {
     [graph, userId],
   );
 
-  const groups = useMemo(() => {
-    if (!graph) return [];
-    const levels = generations(graph, me);
-    const q = query.trim().toLowerCase();
-    const byLevel = new Map<number, string[]>();
+  // Whose point of view: the one picked, else you, else the first person in the tree.
+  const ego = useMemo(() => {
+    if (!graph) return null;
+    if (viewpoint && graph.persons.has(viewpoint)) return viewpoint;
+    if (me) return me;
+    return [...graph.persons.values()].sort((a, b) => a.name.localeCompare(b.name))[0]?.id ?? null;
+  }, [graph, viewpoint, me]);
+
+  const rels = useMemo(() => (graph && ego ? computeRelations(graph, ego) : new Map()), [graph, ego]);
+  const levels = useMemo(() => (graph ? generations(graph, ego) : new Map<string, number>()), [graph, ego]);
+
+  const visible = useMemo(() => {
+    const out = new Set<string>();
+    if (!graph) return out;
+    const q = view === "list" ? query.trim().toLowerCase() : "";
     for (const p of graph.persons.values()) {
       if (q && !`${p.name} ${p.nick ?? ""}`.toLowerCase().includes(q)) continue;
-      const l = levels.get(p.id) ?? 0;
-      byLevel.set(l, [...(byLevel.get(l) ?? []), p.id]);
+      if (filter !== "all" && p.id !== ego && rels.get(p.id)?.side !== filter) continue;
+      out.add(p.id);
     }
-    return [...byLevel.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([level, ids]) => ({ level, ids: ids.sort(byAge(graph)) }));
-  }, [graph, me, query]);
+    return out;
+  }, [graph, query, filter, ego, rels, view]);
+
+  const sortedPeople = useMemo(
+    () => (graph ? [...graph.persons.values()].sort((a, b) => a.name.localeCompare(b.name)) : []),
+    [graph],
+  );
 
   async function signOut() {
     await sb().auth.signOut();
@@ -116,6 +164,8 @@ function TreeScreen({ userId }: { userId: string }) {
 
   const family = families.find((f) => f.id === familyId)!;
   const canInvite = family.role !== "viewer";
+  const open = (id: string) => router.push(`/person/?id=${id}`);
+  const viewProps = graph && { graph, ego, rels, levels, style, visible, onOpen: open };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -124,82 +174,87 @@ function TreeScreen({ userId }: { userId: string }) {
         sub={[family.native_place, graph ? `${graph.persons.size} people` : ""].filter(Boolean).join(" · ")}
         back="/"
         right={
-          canInvite ? (
-            <Link href={`/invite/?family=${family.id}`} className="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white">
-              Invite
+          <span className="flex gap-2">
+            <Link href={`/chat/?family=${family.id}`} className="rounded-lg border border-brand px-3 py-2 text-sm font-medium text-brand">
+              Chat
             </Link>
-          ) : null
+            {canInvite && (
+              <Link href={`/invite/?family=${family.id}`} className="rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white">
+                Invite
+              </Link>
+            )}
+          </span>
         }
       />
-      <main className="mx-auto flex w-full max-w-xl flex-col gap-4 p-4">
+      <main className="mx-auto flex w-full max-w-xl flex-col gap-3 p-4">
         {families.length > 1 && (
           <Select value={family.id} onChange={(e) => setPicked(e.target.value)} aria-label="Switch family">
-            {families.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
+            {families.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
           </Select>
         )}
 
-        {!graph ? (
+        <div role="tablist" aria-label="View" className="grid grid-cols-4 rounded-lg border border-black/15 p-1 dark:border-white/20">
+          {VIEWS.map((v) => (
+            <button key={v.id} role="tab" aria-selected={view === v.id} onClick={() => setView(v.id)}
+              className={`min-h-10 rounded-md text-sm font-medium ${view === v.id ? "bg-brand text-white" : ""}`}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Side of the family">
+          {FILTERS.map((f) => (
+            <button key={f.id} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}
+              className={`min-h-10 shrink-0 rounded-full border px-4 text-sm ${filter === f.id ? "border-brand bg-brand/15 font-medium text-brand" : "border-black/15 dark:border-white/20"}`}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {graph && (
+          <details className="rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/15">
+            <summary className="min-h-8 cursor-pointer select-none">Names &amp; point of view</summary>
+            <div className="mt-2 flex flex-col gap-3 pb-1">
+              <label className="flex flex-col gap-1">
+                <span className="font-medium">Relation names</span>
+                <Select value={style} onChange={(e) => setStyle(e.target.value as RelationStyle)}>
+                  {(Object.keys(STYLE_NAMES) as RelationStyle[]).map((s) => <option key={s} value={s}>{STYLE_NAMES[s]}</option>)}
+                </Select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-medium">See the tree as</span>
+                <Select value={ego ?? ""} onChange={(e) => setViewpoint(e.target.value || null)}>
+                  {sortedPeople.map((p) => <option key={p.id} value={p.id}>{p.name}{p.id === me ? " (you)" : ""}</option>)}
+                </Select>
+              </label>
+              {!me && <p className="text-xs opacity-70">You are not a person in this tree yet, so names are shown from the person above.</p>}
+            </div>
+          </details>
+        )}
+
+        {!graph || !viewProps ? (
           <ModuleLoading />
         ) : (
           <>
-            {graph.persons.size > 8 && (
+            {view === "list" && graph.persons.size > 8 && (
               <Input type="search" placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} />
             )}
             {graph.persons.size <= 1 && me && (
               <div className="rounded-xl bg-amber-50 p-4 text-sm dark:bg-amber-950">
                 Your tree has just you. Open your profile and add your father, mother, spouse or children.
-                <Link href={`/person/?id=${me}`} className="mt-2 block font-medium text-brand">
-                  Open my profile &rarr;
-                </Link>
+                <Link href={`/person/?id=${me}`} className="mt-2 block font-medium text-brand">Open my profile &rarr;</Link>
               </div>
             )}
-            {groups.map(({ level, ids }) => (
-              <section key={level} className="flex flex-col gap-1">
-                <h2 className="px-1 text-xs font-semibold uppercase tracking-wide opacity-60">
-                  {me ? generationLabel(level) : `Generation ${level + 1}`}
-                </h2>
-                <ul className="divide-y divide-black/5 rounded-xl border border-black/10 dark:divide-white/10 dark:border-white/15">
-                  {ids.map((id) => {
-                    const p = graph.persons.get(id)!;
-                    const age = formatAge(ageFrom(p.dob, p.dobp, { deathDate: p.dod }), p.alive);
-                    return (
-                      <li key={id} style={{ contentVisibility: "auto", containIntrinsicSize: "64px" }}>
-                        <Link href={`/person/?id=${id}`} className="flex items-center gap-3 p-3 active:bg-black/5">
-                          <Avatar name={p.name} path={p.photo} />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">
-                              {p.name}
-                              {p.nick && <span className="font-normal opacity-60"> ({p.nick})</span>}
-                              {!p.alive && <span className="opacity-60"> †</span>}
-                            </span>
-                            <span className="block text-xs opacity-60">
-                              {[age, p.uid ? "on Nammoor" : ""].filter(Boolean).join(" · ")}
-                            </span>
-                          </span>
-                          {id === me && (
-                            <span className="rounded-full bg-brand/15 px-2 py-0.5 text-xs font-medium text-brand">You</span>
-                          )}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            ))}
+            {view === "list" && <ListView {...viewProps} />}
+            {view === "tree" && <ChartView {...viewProps} />}
+            {view === "round" && <RoundView {...viewProps} />}
+            {view === "close" && <CloseView {...viewProps} />}
           </>
         )}
 
         <div className="mt-4 flex flex-col gap-2">
-          <Link href="/invite/" className="text-center text-sm text-brand underline">
-            Join another family with an invite code
-          </Link>
-          <Button variant="secondary" onClick={signOut}>
-            Sign out
-          </Button>
+          <Link href="/invite/" className="text-center text-sm text-brand underline">Join another family with an invite code</Link>
+          <Button variant="secondary" onClick={signOut}>Sign out</Button>
         </div>
       </main>
     </div>

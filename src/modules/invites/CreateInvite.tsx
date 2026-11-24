@@ -7,7 +7,7 @@ import { friendlyError } from "@/shared/lib/errors";
 import { Header } from "@/shared/ui/Header";
 import { ModuleLoading } from "@/shared/ui/ModuleLoading";
 import { Button, ErrorText, Field, Input, Section, Select } from "@/shared/ui/form";
-import { shareMessage } from "./code";
+import { prettyCode, shareMessage } from "./code";
 
 type Role = Enums<"family_role_t">;
 
@@ -41,7 +41,6 @@ export function CreateInvite({ familyId, personId, userId }: { familyId: string;
   const [active, setActive] = useState<ActiveInvite[]>([]);
   const [role, setRole] = useState<Role>("editor");
   const [email, setEmail] = useState("");
-  const [days, setDays] = useState(7);
   const [many, setMany] = useState(false);
   const [code, setCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -87,7 +86,6 @@ export function CreateInvite({ familyId, personId, userId }: { familyId: string;
       p_role: role,
       p_claim_person_id: personId ?? undefined,
       p_email: email.trim() || undefined,
-      p_valid_days: days,
       p_max_uses: personId || !many ? 1 : 20,
     });
     setBusy(false);
@@ -105,7 +103,7 @@ export function CreateInvite({ familyId, personId, userId }: { familyId: string;
   if (!ctx && !error) return <ModuleLoading />;
   const isAdmin = ctx?.myRole === "owner" || ctx?.myRole === "admin";
   const link = code ? (siteUrl() ? `${siteUrl()}/invite/?t=${code}` : null) : null;
-  const message = code && ctx ? shareMessage(ctx.familyName, code, link, days) : "";
+  const message = code && ctx ? shareMessage(ctx.familyName, code, link, 48) : "";
 
   async function share() {
     if (navigator.share) {
@@ -137,7 +135,8 @@ export function CreateInvite({ familyId, personId, userId }: { familyId: string;
         ) : code ? (
           <Section title="Invite ready">
             <p className="text-sm opacity-80">Send this to {ctx.personName ?? "your relative"}. It is shown only once.</p>
-            <code className="select-all break-all rounded-lg bg-black/5 p-3 text-sm dark:bg-white/10">{code}</code>
+            <code className="select-all rounded-lg bg-black/5 p-4 text-center text-3xl font-bold tracking-[0.3em] dark:bg-white/10">{prettyCode(code)}</code>
+            <p className="text-center text-xs opacity-70">Works for 48 hours. They enter it in Nammoor under &quot;I have an invite code&quot;.</p>
             {link && <p className="break-all text-xs opacity-70">{link}</p>}
             <a className="min-h-12 rounded-lg bg-[#25D366] px-4 py-3 text-center font-medium text-white"
               href={`https://wa.me/?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer">
@@ -166,11 +165,6 @@ export function CreateInvite({ familyId, personId, userId }: { familyId: string;
             <Field label="Their email (optional)" hint="If set, only this email can use the invite. Safer if the message gets forwarded.">
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </Field>
-            <Field label="Valid for">
-              <Select value={days} onChange={(e) => setDays(Number(e.target.value))}>
-                {[1, 3, 7, 14, 30].map((d) => <option key={d} value={d}>{d} day{d > 1 ? "s" : ""}</option>)}
-              </Select>
-            </Field>
             {!personId && (
               <label className="flex min-h-12 items-center gap-3">
                 <input type="checkbox" className="h-5 w-5" checked={many} onChange={(e) => setMany(e.target.checked)} />
@@ -189,7 +183,7 @@ export function CreateInvite({ familyId, personId, userId }: { familyId: string;
                 <span className="min-w-0">
                   <span className="block truncate">{i.person ?? i.email ?? "Anyone with the code"}</span>
                   <span className="block text-xs opacity-60">
-                    {i.role} · {i.use_count}/{i.max_uses} used · ends {new Date(i.expires_at).toLocaleDateString("en-IN")}
+                    {i.role} · {i.use_count}/{i.max_uses} used · ends {new Date(i.expires_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                   </span>
                 </span>
                 <button type="button" onClick={() => revoke(i.id)} className="min-h-10 px-2 text-red-700">Cancel</button>

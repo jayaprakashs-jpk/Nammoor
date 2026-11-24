@@ -133,7 +133,7 @@ select test.must_count(format('select jsonb_array_length(public.family_graph(%L)
 select test.must_fail(format(
   'insert into public.persons (family_id, managed_by, full_name) values (%L, auth.uid(), ''Spy'')',
   test.id('fam')), 'row-level security');
-select test.must_fail('select public.accept_invite(''deadbeef'')', 'invalid or expired');
+select test.must_count('select count(*) from (select public.accept_invite(''ZZZZ-9999'') as r) x where r is null', 1, 'wrong code gives null');
 -- mallory steals carol's email-locked link
 select test.must_fail(format('select public.accept_invite(%L)', (select t from tok where k = 'carol')), 'different email');
 reset role;
@@ -148,7 +148,7 @@ select test.must_count('select count(*) from public.profiles', 2, 'bob sees alic
 reset role;
 select test.login('mallory@x.in');
 set role authenticated;
-select test.must_fail(format('select public.accept_invite(%L)', (select t from tok where k = 'bob')), 'invalid or expired');
+select test.must_count(format('select count(*) from (select public.accept_invite(%L) as r) x where r is null', (select t from tok where k = 'bob')), 1, 'used single-use code gives null');
 reset role;
 
 \echo '8. bob edits only his branch'
@@ -166,7 +166,7 @@ select test.must_fail(format('update public.persons set managed_by = %L where id
 select test.must_fail(format('update public.persons set family_id = gen_random_uuid() where id = %L', test.id('bob_node')), 'permission denied');
 select test.must_fail(format('select public.create_invite(%L, ''admin'')', test.id('fam')), 'not allowed');
 select test.must_fail(format('select public.create_invite(%L, ''editor'', %L)', test.id('fam'), test.id('father')), 'only attach a person you manage');
-select length(public.create_invite(test.id('fam'), 'viewer')) = 48 as editor_can_invite_viewer;
+select test.must_count(format('select count(*) from (select public.create_invite(%L, ''viewer'') as c) x where c ~ ''^[A-HJ-NP-Z2-9]{8}$''', test.id('fam')), 1, 'code is 8 safe characters');
 
 -- bob adds his own child and links it
 insert into public.persons (family_id, managed_by, full_name, gender, birth_date, birth_precision)
@@ -332,9 +332,60 @@ set role authenticated;
 select test.must_fail(format('select public.add_relative(%L, ''child'', ''{"full_name":"x"}'')', test.id('bob_node')), 'row-level security');
 reset role;
 set role anon;
-select test.must_count(format('select count(*) from public.invite_preview(%L) where family_name = ''Ramasamy Kudumbam'' and invited_by = ''Alice''', :'preview_tok'), 1, 'anon sees preview with token');
-select test.must_count('select count(*) from public.invite_preview(''bad'')', 0, 'bad token gives nothing');
+select test.must_fail(format('select * from public.invite_preview(%L)', :'preview_tok'), 'permission denied');
 select test.must_fail(format('select public.add_relative(%L, ''child'', ''{"full_name":"x"}'')', test.id('bob_node')), 'permission denied');
+reset role;
+
+\echo '16c. invite codes: preview, typing style, expiry, guess limit'
+select test.login('carol@x.in');
+set role authenticated;
+-- lower case with a hyphen is the same code
+select test.must_count(format('select count(*) from public.invite_preview(%L) where family_name = ''Ramasamy Kudumbam'' and invited_by = ''Alice''',
+  lower(substr(:'preview_tok', 1, 4) || '-' || substr(:'preview_tok', 5))), 1, 'preview works with hyphen + lower case');
+select test.must_count('select count(*) from public.invite_preview(''ZZZZZZZZ'')', 0, 'bad code gives nothing');
+reset role;
+-- expiry
+select test.login('alice@x.in');
+set role authenticated;
+insert into tok values ('old', public.create_invite(test.id('fam'), 'viewer'));
+select test.must_count('select count(*) from public.family_invites where expires_at between now() + interval ''47 hours 59 minutes'' and now() + interval ''48 hours 1 minute''', 5, 'new invites live 48 hours');
+reset role;
+update public.family_invites set expires_at = now() - interval '1 minute'
+ where token_hash = app.invite_code_hash((select t from tok where k = 'old'));
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_count(format('select count(*) from public.invite_preview(%L)', (select t from tok where k = 'old')), 0, 'expired code gives nothing');
+reset role;
+-- guess limit: mallory already has 2 wrong guesses, 8 more allowed, then locked
+select test.login('mallory@x.in');
+set role authenticated;
+do $$ begin for i in 1..8 loop perform public.invite_preview('WRONG' || i); end loop; end $$;
+select test.must_fail('select * from public.invite_preview(''ABCDEFGH'')', 'too many wrong codes');
+select test.must_fail(format('select public.accept_invite(%L)', (select t from tok where k = 'preview')), 'too many wrong codes');
+reset role;
+
+\echo '16d. group chat creation'
+select test.login('alice@x.in');
+set role authenticated;
+select test.put('grp', public.create_group_chat(test.id('fam'), 'Pongal plan', array[test.uid('bob@x.in'), test.uid('carol@x.in')]));
+select test.must_count(format('select count(*) from public.chat_room_members where room_id = %L', test.id('grp')), 3, 'creator + 2 members');
+select test.must_count(format('select count(*) from public.chat_rooms where id = %L and kind = ''group''', test.id('grp')), 1, 'creator sees the room');
+insert into public.chat_messages (room_id, body) values (test.id('grp'), 'Who brings the sugarcane?');
+select test.must_fail(format('select public.create_group_chat(%L, ''x'', array[%L]::uuid[])', test.id('fam'), test.uid('mallory@x.in')), 'at least one other');
+select test.must_fail(format('select public.create_group_chat(%L, '' '', array[%L]::uuid[])', test.id('fam'), test.uid('bob@x.in')), 'name');
+reset role;
+select test.login('mallory@x.in');
+set role authenticated;
+select test.must_fail(format('select public.create_group_chat(%L, ''Spy'', array[%L]::uuid[])', test.id('fam'), test.uid('bob@x.in')), 'not allowed');
+select test.must_count('select count(*) from public.chat_messages', 0, 'outsider cannot read group messages');
+reset role;
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_count(format('select count(*) from public.chat_messages where room_id = %L', test.id('grp')), 1, 'member reads group message');
+-- soft delete own message only
+select test.must_count('select count(*) from public.chat_rooms', 2, 'carol sees family room + her group');
+update public.chat_messages set deleted_at = now(), body = null where room_id = test.id('grp');
+select test.must_count(format('select count(*) from public.chat_messages where room_id = %L and deleted_at is null', test.id('grp')), 1, 'cannot delete others messages');
 reset role;
 
 \echo '17. owner deletes family, everything cascades'

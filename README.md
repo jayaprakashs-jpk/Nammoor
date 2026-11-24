@@ -11,6 +11,7 @@ Family tree, relatives, functions and transport. One codebase: website + Android
 | `npm run dev` | Local web dev server |
 | `npm run check` | Lint + typecheck + unit tests + production build |
 | `npm run db:test` | Throwaway Postgres, apply migrations, run the RLS/integrity tests |
+| `npm run e2e:views` | Offline UI test: tree views, filters, relation names, chat. Pretend Supabase, no secrets |
 | `npm run e2e:smoke` | Signed-out checks against the real Supabase project. No secrets |
 | `npm run e2e:full` | Full Phase 1 flow with two test users. Needs `SUPABASE_SECRET_KEY` in your shell, never in a file |
 | `npm run android:sync` | Build web and copy it into the Android project |
@@ -38,8 +39,8 @@ src/
     family-tree/  Create family, tree list grouped by generation
     profiles/     Member profile: view, edit, relatives, photo, private salary/DNA
     invites/      Create + share invites, join with a code
-    relations/    (next) Uravumurai relation engine
-    chat/         (next) Family chat
+    relations/    Uravumurai engine. terms.ts is the name table: edit rows there, native speakers should review
+    chat/         Family room, private groups, live messages
   shared/              Code any module can use: supabase client, session, graph, age, ui.
 supabase/
   migrations/          The schema. Source of truth for data + security.

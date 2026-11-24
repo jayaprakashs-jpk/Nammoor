@@ -352,6 +352,24 @@ export type Database = {
           },
         ]
       }
+      invite_attempts: {
+        Row: {
+          at: string
+          id: number
+          user_id: string
+        }
+        Insert: {
+          at?: string
+          id?: never
+          user_id: string
+        }
+        Update: {
+          at?: string
+          id?: never
+          user_id?: string
+        }
+        Relationships: []
+      }
       parent_child: {
         Row: {
           child_id: string
@@ -904,7 +922,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      accept_invite: { Args: { p_token: string }; Returns: string }
+      accept_invite: { Args: { p_code: string }; Returns: string }
       add_relative: {
         Args: { p_anchor: string; p_person: Json; p_relation: string }
         Returns: string
@@ -918,6 +936,10 @@ export type Database = {
         }
         Returns: string
       }
+      create_group_chat: {
+        Args: { p_family_id: string; p_member_ids: string[]; p_name: string }
+        Returns: string
+      }
       create_invite: {
         Args: {
           p_claim_person_id?: string
@@ -925,13 +947,12 @@ export type Database = {
           p_family_id: string
           p_max_uses?: number
           p_role?: Database["public"]["Enums"]["family_role_t"]
-          p_valid_days?: number
         }
         Returns: string
       }
       family_graph: { Args: { p_family_id: string }; Returns: Json }
       invite_preview: {
-        Args: { p_token: string }
+        Args: { p_code: string }
         Returns: {
           email_locked: boolean
           family_name: string

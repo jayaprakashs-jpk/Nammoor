@@ -57,10 +57,15 @@ const ok = (m) => console.log(`  ✓ ${m}`);
     await page.goto(BASE + "/invite/");
     await page.getByLabel("Invite code").fill("hello");
     await page.getByText("doesn't look like an invite code").waitFor();
-    await page.getByLabel("Invite code").fill("Join us! Invite code: " + "ab".repeat(24));
-    await page.getByText("wrong, expired or already used").waitFor();
-    await page.screenshot({ path: path.join(SHOTS, "04-invite-bad.png") });
-    ok("invite page pulls code out of a pasted message and rejects unknown codes (real RPC)");
+    await page.getByLabel("Invite code").fill("Join us! Invite code: K7MQ-4XPA");
+    await page.getByRole("link", { name: "Sign in to use code K7MQ-4XPA" }).waitFor();
+    await page.screenshot({ path: path.join(SHOTS, "04-invite-signin.png") });
+    ok("invite page pulls the code out of a pasted message; signed-out users are asked to sign in");
+    const pv = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/invite_preview`, {
+      method: "POST", headers: { apikey: pub, "Content-Type": "application/json" }, body: JSON.stringify({ p_code: "K7MQ4XPA" }),
+    });
+    if (pv.ok) throw new Error("anon could call invite_preview");
+    ok("anonymous key cannot probe invite codes");
 
     await page.goto(BASE + "/login/?next=https://evil.example");
     await page.getByLabel("Email").waitFor();

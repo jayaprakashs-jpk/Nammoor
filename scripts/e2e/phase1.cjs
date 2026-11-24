@@ -175,7 +175,7 @@ async function login(page, email, name) {
     await a.getByRole("link", { name: /Invite Bob to manage this profile/ }).click();
     await a.getByRole("button", { name: "Create invite" }).click();
     const code = (await a.locator("code").innerText()).trim();
-    if (!/^[0-9a-f]{48}$/.test(code)) throw new Error("bad invite code " + code);
+    if (!/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/.test(code)) throw new Error("bad invite code " + code);
     await shot(a, "invite-ready");
     ok("created claim invite for Bob");
 
@@ -184,12 +184,10 @@ async function login(page, email, name) {
     const b = await bctx.newPage();
     b.on("pageerror", (e) => errors.push(`bob: ${e.message}`));
     await b.goto(`${BASE}/invite/?t=${code}`);
-    await b.getByText(FAMILY).waitFor();
-    await b.getByText("You will be added as").waitFor();
-    await shot(b, "join-preview");
-    ok("signed-out invite preview shows family + who you are");
-    await b.getByRole("link", { name: "Sign in to join" }).click();
+    await b.getByRole("link", { name: /Sign in to use code/ }).click();
     await login(b, BOB, "Bob");
+    await b.getByText(FAMILY).first().waitFor();
+    await b.getByText("You will be added as").waitFor();
     await b.getByRole("button", { name: `Join ${FAMILY}` }).click();
     await b.getByText("Your generation").waitFor();
     const bobRow = await b.locator("li", { hasText: "Bob Kumar" }).innerText();

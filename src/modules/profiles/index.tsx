@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { sb } from "@/shared/lib/supabase";
 import { ageFrom, formatAge, formatDate } from "@/shared/lib/age";
 import { invalidateGraph } from "@/shared/lib/graphStore";
+import { useRelationStyle } from "@/shared/lib/prefs";
+import { computeRelations, labelFor } from "@/modules/relations/engine";
 import { friendlyError } from "@/shared/lib/errors";
 import { RequireAuth } from "@/shared/ui/RequireAuth";
 import { Header } from "@/shared/ui/Header";
@@ -39,6 +41,7 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
   const [bundle, setBundle] = useState<PersonBundle | null | undefined>(undefined);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
+  const [style] = useRelationStyle(userId);
 
   const reload = useCallback(
     (force = false) => {
@@ -79,6 +82,9 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
     router.replace("/tree/");
   }
 
+  const meNode = [...bundle.graph.persons.values()].find((x) => x.uid === userId);
+  const relLabel =
+    meNode && meNode.id !== p.id ? labelFor(computeRelations(bundle.graph, meNode.id).get(p.id), style) : null;
   const age = formatAge(ageFrom(p.birth_date, p.birth_precision, { deathDate: p.death_date }), p.is_living);
   const place = [
     p.current_city,
@@ -115,6 +121,12 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
             {p.full_name}
             {p.nickname && <span className="font-normal opacity-60"> ({p.nickname})</span>}
           </p>
+          {relLabel?.title && (
+            <p className="text-lg font-semibold text-brand">
+              {relLabel.title}
+              {relLabel.sub && <span className="block text-xs font-normal opacity-70">{relLabel.sub}</span>}
+            </p>
+          )}
           <p className="text-sm opacity-70">
             {[age, p.user_id ? (p.user_id === userId ? "You" : "On Nammoor") : "Not on Nammoor yet"].filter(Boolean).join(" · ")}
           </p>
