@@ -388,6 +388,54 @@ update public.chat_messages set deleted_at = now(), body = null where room_id = 
 select test.must_count(format('select count(*) from public.chat_messages where room_id = %L and deleted_at is null', test.id('grp')), 1, 'cannot delete others messages');
 reset role;
 
+\echo '16e. export and import'
+select test.login('alice@x.in');
+set role authenticated;
+select test.must_count(format('select jsonb_array_length((public.export_family(%L)) -> ''persons'')', test.id('fam')), (select count(*) from public.persons), 'export has everyone');
+select test.must_count(format('select count(*) from (select public.export_family(%L) as j) x where j ->> ''format'' = ''nammoor-family-backup'' and not (j::text like ''%%salary%%'')', test.id('fam')), 1, 'export has no salary');
+select test.must_count(format('select count(*) from (select public.family_graph(%L) as g) x where (g -> ''persons'' -> 0) ? ''np'' and (g -> ''persons'' -> 0) ? ''dodp'' and jsonb_array_length(g -> ''unions'' -> 0) = 6', test.id('fam')), 1, 'graph has the new fields');
+reset role;
+-- bob is now admin (test 15 promoted him) so use carol (viewer)
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_fail(format('select public.export_family(%L)', test.id('fam')), 'only owners and admins');
+select test.must_fail(format('select public.import_family_data(%L, ''{"persons":[]}'')', test.id('fam')), 'only owners and admins');
+reset role;
+select test.login('alice@x.in');
+set role authenticated;
+select test.put('imp_existing', (select id from public.persons where family_id = test.id('fam') and full_name = 'Lakshmi'));
+create temp table before_imp as select count(*) n from public.persons;
+grant all on before_imp to authenticated;
+select test.must_count(format($f$select (public.import_family_data(%L, %L::jsonb) ->> 'added')::int$f$, test.id('fam'),
+  json_build_object('persons', json_build_array(
+     json_build_object('ref','a','full_name','Imported Grandpa','gender','male','birth_date','1920-01-01','birth_precision','year','is_living',false,'death_date','1990-05-05',
+        'education', json_build_array(json_build_object('level','school','course','10th')), 'occupations', json_build_array(json_build_object('title','Farmer'))),
+     json_build_object('ref','b','full_name','Imported Child','gender','female','birth_date','1950-02-02'),
+     json_build_object('ref','c','existing',test.id('imp_existing'),'full_name','Lakshmi','birth_date','1955-03-03','birth_place','Madurai')),
+   'parents', json_build_array(json_build_array('a','b','biological'), json_build_array('a','c','biological')),
+   'unions', json_build_array(json_build_array('b','c','2000-01-01','exact',null,null)))::text), 2, 'two people added');
+select test.must_count(format('select count(*) from public.persons where id = %L and birth_date = ''1955-03-03'' and birth_place = ''Madurai''', test.id('imp_existing')), 1, 'linked person got blanks filled');
+select test.must_count('select count(*) from public.persons where full_name = ''Imported Grandpa'' and not is_living and birth_precision = ''year''', 1, 'death + precision kept');
+select test.must_count('select count(*) from public.person_education where course = ''10th''', 1, 'education imported');
+select test.must_count(format('select count(*) from public.parent_child where child_id = %L', test.id('imp_existing')), 1, 'linked person gained the imported parent');
+-- importing the same file again must not duplicate links
+select public.import_family_data(test.id('fam'), json_build_object('persons', json_build_array(
+   json_build_object('ref','x','existing',(select id from public.persons where full_name = 'Imported Grandpa')),
+   json_build_object('ref','y','existing',(select id from public.persons where full_name = 'Imported Child'))),
+   'parents', json_build_array(json_build_array('x','y','biological')))::jsonb);
+select test.must_count('select count(*) from public.parent_child pc join public.persons p on p.id = pc.child_id where p.full_name = ''Imported Child''', 1, 'no duplicate link on re-import');
+-- all or nothing: a bad link rolls everything back
+select test.must_fail(format($f$select public.import_family_data(%L, %L::jsonb)$f$, test.id('fam'),
+  json_build_object('persons', json_build_array(json_build_object('ref','a','full_name','Should Not Exist')),
+    'parents', json_build_array(json_build_array('a','zzz','biological')))::text), 'not in the file');
+select test.must_count('select count(*) from public.persons where full_name = ''Should Not Exist''', 0, 'bad file left nothing behind');
+-- a third biological parent is refused by the tree rules and rolls back
+select test.must_fail(format($f$select public.import_family_data(%L, %L::jsonb)$f$, test.id('fam'),
+  json_build_object('persons', json_build_array(json_build_object('ref','p','full_name','Third Parent'), json_build_object('ref','k','existing',test.id('bob_node'))),
+    'parents', json_build_array(json_build_array('p','k','biological')))::text), 'at most 2 biological');
+select test.must_count('select count(*) from public.persons where full_name = ''Third Parent''', 0, 'tree rule violation left nothing behind');
+reset role;
+
 \echo '17. owner deletes family, everything cascades'
 select test.login('alice@x.in');
 set role authenticated;

@@ -17,7 +17,9 @@ export function sb(): SupabaseClient<Database> {
     throw new Error("Supabase keys missing. Check .env");
   }
   client = createClient<Database>(url, key, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+    // PKCE: the safe way to sign in with Google from a browser or an app.
+    // detectSessionInUrl is off: our own callback screen reads the return link.
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, flowType: "pkce" },
   });
   return client;
 }

@@ -14,25 +14,37 @@ import { computeRelations, STYLE_NAMES, type RelationStyle } from "@/modules/rel
 import { RequireAuth } from "@/shared/ui/RequireAuth";
 import { Header } from "@/shared/ui/Header";
 import { signedPhotoUrls } from "@/shared/ui/Avatar";
-import { Button, ErrorText, Input, Select } from "@/shared/ui/form";
+import { Button, ErrorText, Select } from "@/shared/ui/form";
 import { ModuleLoading } from "@/shared/ui/ModuleLoading";
 import { CreateFamily } from "./CreateFamily";
+import { InsightsCard } from "./InsightsCard";
+import { QuickAdd } from "./QuickAdd";
+import { invalidateGraph } from "@/shared/lib/graphStore";
 import ListView from "./views/ListView";
 
 // Each picture loads only when opened.
 const ChartView = dynamic(() => import("./views/ChartView"), { ssr: false, loading: ModuleLoading });
 const RoundView = dynamic(() => import("./views/RoundView"), { ssr: false, loading: ModuleLoading });
 const CloseView = dynamic(() => import("./views/CloseView"), { ssr: false, loading: ModuleLoading });
+const PedigreeView = dynamic(() => import("./views/PedigreeView"), { ssr: false, loading: ModuleLoading });
+const FanView = dynamic(() => import("./views/FanView"), { ssr: false, loading: ModuleLoading });
+const TimelineView = dynamic(() => import("./views/TimelineView"), { ssr: false, loading: ModuleLoading });
 
-type View = "list" | "tree" | "round" | "close";
+type View = "list" | "tree" | "pedigree" | "fan" | "round" | "close" | "timeline";
 type Filter = "all" | "paternal" | "maternal";
 
 const VIEWS: { id: View; label: string }[] = [
   { id: "list", label: "List" },
   { id: "tree", label: "Tree" },
+  { id: "pedigree", label: "Pedigree" },
+  { id: "fan", label: "Fan" },
   { id: "round", label: "Round" },
   { id: "close", label: "Close" },
+  { id: "timeline", label: "Timeline" },
 ];
+// Which controls make sense for which picture.
+const USES_DEPTH: View[] = ["tree", "pedigree", "fan"];
+const USES_SIDE: View[] = ["list", "tree", "round", "close", "timeline"];
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "Everyone" },
   { id: "paternal", label: "Father's side" },
@@ -69,7 +81,9 @@ function TreeScreen({ userId }: { userId: string }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<{ familyId: string; graph: Graph } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [query, setQuery] = useState("");
+  const [graphKey, setGraphKey] = useState(0); // bump to fetch the tree again
+  const [depth, setDepth] = useState(4);
+  const [quick, setQuick] = useState<{ childId: string; role: "father" | "mother" } | null>(null);
   const [error, setError] = useState("");
   const [view, setViewState] = useState<View>(() => {
     const v = readLocal("nammoor.view");
@@ -114,7 +128,7 @@ function TreeScreen({ userId }: { userId: string }) {
     return () => {
       alive = false;
     };
-  }, [familyId]);
+  }, [familyId, graphKey]);
 
   const graph = loaded && loaded.familyId === familyId ? loaded.graph : null;
 
@@ -137,14 +151,14 @@ function TreeScreen({ userId }: { userId: string }) {
   const visible = useMemo(() => {
     const out = new Set<string>();
     if (!graph) return out;
-    const q = view === "list" ? query.trim().toLowerCase() : "";
     for (const p of graph.persons.values()) {
-      if (q && !`${p.name} ${p.nick ?? ""}`.toLowerCase().includes(q)) continue;
-      if (filter !== "all" && p.id !== ego && rels.get(p.id)?.side !== filter) continue;
+      if (USES_SIDE.includes(view) && filter !== "all" && p.id !== ego && rels.get(p.id)?.side !== filter) continue;
+      // Big trees stay smooth: the Tree picture only shows the chosen number of generations around you.
+      if (view === "tree" && ego && Math.abs(levels.get(p.id) ?? 0) > depth - 1) continue;
       out.add(p.id);
     }
     return out;
-  }, [graph, query, filter, ego, rels, view]);
+  }, [graph, filter, ego, rels, view, levels, depth]);
 
   const sortedPeople = useMemo(
     () => (graph ? [...graph.persons.values()].sort((a, b) => a.name.localeCompare(b.name)) : []),
@@ -165,7 +179,12 @@ function TreeScreen({ userId }: { userId: string }) {
   const family = families.find((f) => f.id === familyId)!;
   const canInvite = family.role !== "viewer";
   const open = (id: string) => router.push(`/person/?id=${id}`);
-  const viewProps = graph && { graph, ego, rels, levels, style, visible, onOpen: open };
+  const canEdit = (id: string) => {
+    if (family.role === "owner" || family.role === "admin") return true;
+    const p = graph?.persons.get(id);
+    return family.role === "editor" && !!p && (p.mgr === userId || p.uid === userId);
+  };
+  const viewProps = graph && { graph, ego, rels, levels, style, visible, onOpen: open, depth, canEdit, onQuickAdd: (childId: string, role: "father" | "mother") => setQuick({ childId, role }) };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -193,23 +212,33 @@ function TreeScreen({ userId }: { userId: string }) {
           </Select>
         )}
 
-        <div role="tablist" aria-label="View" className="grid grid-cols-4 rounded-lg border border-black/15 p-1 dark:border-white/20">
+        <div role="tablist" aria-label="View" className="flex gap-1 overflow-x-auto rounded-lg border border-black/15 p-1 dark:border-white/20">
           {VIEWS.map((v) => (
             <button key={v.id} role="tab" aria-selected={view === v.id} onClick={() => setView(v.id)}
-              className={`min-h-10 rounded-md text-sm font-medium ${view === v.id ? "bg-brand text-white" : ""}`}>
+              className={`min-h-10 shrink-0 rounded-md px-3 text-sm font-medium ${view === v.id ? "bg-brand text-white" : ""}`}>
               {v.label}
             </button>
           ))}
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Side of the family">
-          {FILTERS.map((f) => (
-            <button key={f.id} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}
-              className={`min-h-10 shrink-0 rounded-full border px-4 text-sm ${filter === f.id ? "border-brand bg-brand/15 font-medium text-brand" : "border-black/15 dark:border-white/20"}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
+        {USES_SIDE.includes(view) && (
+          <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Side of the family">
+            {FILTERS.map((f) => (
+              <button key={f.id} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}
+                className={`min-h-10 shrink-0 rounded-full border px-4 text-sm ${filter === f.id ? "border-brand bg-brand/15 font-medium text-brand" : "border-black/15 dark:border-white/20"}`}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {USES_DEPTH.includes(view) && (
+          <label className="flex items-center gap-3 rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/15">
+            <span className="shrink-0 font-medium">Generations</span>
+            <input type="range" min={3} max={7} step={1} value={depth} aria-label="Generations to show" onChange={(e) => setDepth(Number(e.target.value))} className="h-8 flex-1 accent-[#b45309]" />
+            <span className="w-8 shrink-0 text-right tabular-nums">{depth === 7 ? "7+" : depth}</span>
+          </label>
+        )}
+        {graph && <InsightsCard graph={graph} />}
 
         {graph && (
           <details className="rounded-lg border border-black/10 px-3 py-2 text-sm dark:border-white/15">
@@ -236,9 +265,6 @@ function TreeScreen({ userId }: { userId: string }) {
           <ModuleLoading />
         ) : (
           <>
-            {view === "list" && graph.persons.size > 8 && (
-              <Input type="search" placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} />
-            )}
             {graph.persons.size <= 1 && me && (
               <div className="rounded-xl bg-amber-50 p-4 text-sm dark:bg-amber-950">
                 Your tree has just you. Open your profile and add your father, mother, spouse or children.
@@ -247,12 +273,28 @@ function TreeScreen({ userId }: { userId: string }) {
             )}
             {view === "list" && <ListView {...viewProps} />}
             {view === "tree" && <ChartView {...viewProps} />}
+            {view === "pedigree" && <PedigreeView {...viewProps} />}
+            {view === "fan" && <FanView {...viewProps} />}
             {view === "round" && <RoundView {...viewProps} />}
+            {view === "timeline" && <TimelineView {...viewProps} />}
             {view === "close" && <CloseView {...viewProps} />}
           </>
         )}
 
+        {quick && graph && (
+          <QuickAdd familyId={family.id} childId={quick.childId} childName={graph.persons.get(quick.childId)?.name ?? ""} role={quick.role}
+            onClose={() => setQuick(null)}
+            onAdded={() => {
+              setQuick(null);
+              invalidateGraph(family.id);
+              setGraphKey((k) => k + 1); // keeps the old picture on screen until the new one arrives
+            }} />
+        )}
+
         <div className="mt-4 flex flex-col gap-2">
+          {(family.role === "owner" || family.role === "admin") && (
+            <Link href={`/backup/?family=${family.id}`} className="text-center text-sm text-brand underline">Backup, export &amp; import</Link>
+          )}
           <Link href="/invite/" className="text-center text-sm text-brand underline">Join another family with an invite code</Link>
           <Button variant="secondary" onClick={signOut}>Sign out</Button>
         </div>

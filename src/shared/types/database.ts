@@ -950,7 +950,12 @@ export type Database = {
         }
         Returns: string
       }
+      export_family: { Args: { p_family_id: string }; Returns: Json }
       family_graph: { Args: { p_family_id: string }; Returns: Json }
+      import_family_data: {
+        Args: { p_data: Json; p_family_id: string }
+        Returns: Json
+      }
       invite_preview: {
         Args: { p_code: string }
         Returns: {

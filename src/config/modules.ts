@@ -7,6 +7,7 @@ export type ModuleId =
   | "profiles"
   | "chat"
   | "invites"
+  | "backup"
   | "events"
   | "calendar"
   | "matrimony"
@@ -27,6 +28,7 @@ export const MODULES: readonly ModuleInfo[] = [
   { id: "profiles", label: "Profile", labelTa: "சுயவிவரம்", route: "/person/", phase: 1, enabled: true, showInNav: false },
   { id: "chat", label: "Family Chat", labelTa: "குடும்ப அரட்டை", route: "/chat/", phase: 1, enabled: true, showInNav: true },
   { id: "invites", label: "Invite", labelTa: "அழைப்பு", route: "/invite/", phase: 1, enabled: true, showInNav: false },
+  { id: "backup", label: "Backup", labelTa: "காப்புப்பிரதி", route: "/backup/", phase: 1, enabled: true, showInNav: false },
   { id: "events", label: "Functions", labelTa: "விழாக்கள்", route: "/events/", phase: 2, enabled: false, showInNav: true },
   { id: "calendar", label: "Calendar", labelTa: "நாட்காட்டி", route: "/calendar/", phase: 2, enabled: false, showInNav: true },
   { id: "matrimony", label: "Matrimony", labelTa: "திருமணம்", route: "/matrimony/", phase: 3, enabled: false, showInNav: true },

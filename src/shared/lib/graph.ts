@@ -17,6 +17,10 @@ export interface GPerson {
   uid: string | null;
   mgr: string | null;
   state: string | null;
+  /** Native place (oor). */
+  np?: string | null;
+  /** How exactly the death date is known. */
+  dodp?: Enums<"date_precision_t">;
 }
 
 export interface Union {
@@ -25,6 +29,8 @@ export interface Union {
   married: string | null;
   ended: string | null;
   reason: string | null;
+  /** How exactly the marriage date is known. */
+  precision: Enums<"date_precision_t">;
 }
 
 export interface Graph {
@@ -44,7 +50,7 @@ export function buildGraph(raw: Json): Graph {
   const r = (raw ?? {}) as {
     persons?: GPerson[];
     parents?: [string, string, Enums<"parent_kind_t">][];
-    unions?: [string, string, string | null, string | null, string | null][];
+    unions?: [string, string, string | null, string | null, string | null, Enums<"date_precision_t">?][];
   };
   const g: Graph = { persons: new Map(), parentsOf: new Map(), childrenOf: new Map(), unionsOf: new Map() };
   for (const p of r.persons ?? []) g.persons.set(p.id, p);
@@ -52,8 +58,8 @@ export function buildGraph(raw: Json): Graph {
     push(g.parentsOf, child, { id: parent, kind });
     push(g.childrenOf, parent, child);
   }
-  for (const [a, b, married, ended, reason] of r.unions ?? []) {
-    const u = { a, b, married, ended, reason };
+  for (const [a, b, married, ended, reason, precision] of r.unions ?? []) {
+    const u: Union = { a, b, married, ended, reason, precision: precision ?? (married ? "exact" : "unknown") };
     push(g.unionsOf, a, u);
     push(g.unionsOf, b, u);
   }

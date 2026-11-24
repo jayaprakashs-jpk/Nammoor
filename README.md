@@ -19,6 +19,14 @@ Family tree, relatives, functions and transport. One codebase: website + Android
 
 CI (`.github/workflows/ci.yml`) runs all of this on every push and uploads `nammoor-debug-apk`.
 
+## Google sign-in
+
+See `docs/google-signin-setup.md`. It needs a Google Web OAuth client and 2 Supabase settings.
+
+## Android signing
+
+Debug APKs are signed with `android/app/debug.keystore` (committed on purpose) so a new APK always installs over the old one. Never use it for a Play Store release.
+
 ## Supabase
 
 Project `ijvisbjyhkpifhyltrxk`. Migrations in `supabase/migrations` are applied in order
@@ -39,6 +47,7 @@ src/
     family-tree/  Create family, tree list grouped by generation
     profiles/     Member profile: view, edit, relatives, photo, private salary/DNA
     invites/      Create + share invites, join with a code
+    backup/       Export (.json, GEDCOM 5.5.1) and import with duplicate check, native Share sheet
     relations/    Uravumurai engine. terms.ts is the name table: edit rows there, native speakers should review
     chat/         Family room, private groups, live messages
   shared/              Code any module can use: supabase client, session, graph, age, ui.

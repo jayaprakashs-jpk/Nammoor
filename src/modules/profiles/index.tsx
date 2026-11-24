@@ -16,7 +16,7 @@ import { Button, ErrorText, Section } from "@/shared/ui/form";
 import { canEdit, loadPerson, ownsPrivate, type PersonBundle } from "./api";
 import { PhotoPicker } from "./PhotoPicker";
 import { BASICS_FORM_ID, EditBasics } from "./EditBasics";
-import { Toaster, toast } from "@/shared/ui/Toast";
+import { toast } from "@/shared/ui/Toast";
 import { ContactEditor, EducationEditor, WorkEditor } from "./Details";
 import { PrivateEditor, SharedPrivateView } from "./PrivatePanel";
 import { Relatives } from "./Relatives";
@@ -116,7 +116,6 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
 
   return (
     <div className="flex flex-1 flex-col">
-      <Toaster />
       <Header
         title={p.full_name}
         sub={p.name_native ?? undefined}

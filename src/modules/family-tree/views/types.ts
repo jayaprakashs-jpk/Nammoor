@@ -11,6 +11,12 @@ export interface ViewProps {
   /** People to show (the side filter and search already applied). */
   visible: Set<string>;
   onOpen: (id: string) => void;
+  /** How many generations to show (3 to 7). */
+  depth: number;
+  /** Can the signed-in person edit this one? Decides if "+ Add" cards appear. */
+  canEdit: (id: string) => boolean;
+  /** Open the quick "add a parent" sheet. */
+  onQuickAdd: (childId: string, role: "father" | "mother") => void;
 }
 
 export const SIDE_COLOR = {
