@@ -9,6 +9,7 @@ import { generations, type Graph } from "@/shared/lib/graph";
 import { getGraph } from "@/shared/lib/graphStore";
 import { getCurrentFamilyId, readLocal, setCurrentFamilyId, writeLocal } from "@/shared/lib/storage";
 import { useRelationStyle } from "@/shared/lib/prefs";
+import { clearLock } from "@/shared/lib/appLock";
 import { friendlyError } from "@/shared/lib/errors";
 import { computeRelations, STYLE_NAMES, type RelationStyle } from "@/modules/relations/engine";
 import { RequireAuth } from "@/shared/ui/RequireAuth";
@@ -167,6 +168,7 @@ function TreeScreen({ userId }: { userId: string }) {
 
   async function signOut() {
     await sb().auth.signOut();
+    clearLock();
     setCurrentFamilyId(null);
     router.replace("/login/");
   }
@@ -295,6 +297,7 @@ function TreeScreen({ userId }: { userId: string }) {
           {(family.role === "owner" || family.role === "admin") && (
             <Link href={`/backup/?family=${family.id}`} className="text-center text-sm text-brand underline">Backup, export &amp; import</Link>
           )}
+          <Link href="/security/" className="text-center text-sm text-brand underline">Security &amp; sign-in</Link>
           <Link href="/invite/" className="text-center text-sm text-brand underline">Join another family with an invite code</Link>
           <Button variant="secondary" onClick={signOut}>Sign out</Button>
         </div>

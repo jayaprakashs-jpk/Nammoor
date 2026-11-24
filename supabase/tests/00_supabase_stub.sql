@@ -17,6 +17,7 @@ grant usage on schema auth to anon, authenticated;
 create table auth.users (
   id                  uuid primary key,
   email               text,
+  phone               text,
   raw_user_meta_data  jsonb not null default '{}'
 );
 create function auth.uid() returns uuid language sql stable as $$
@@ -48,6 +49,9 @@ create publication supabase_realtime;
 
 -- Test helper: act as a user.
 create schema test;
+create function test.login_as(p_id uuid) returns void language sql as $$
+  select set_config('request.jwt.claims', json_build_object('sub', p_id, 'role', 'authenticated')::text, false)
+$$;
 create function test.login(p_email text) returns void language sql as $$
   select set_config('request.jwt.claims',
     json_build_object('sub', (select id from auth.users where email = p_email),

@@ -150,6 +150,9 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
           <p className="text-sm opacity-70">
             {[age, p.user_id ? (p.user_id === userId ? "You" : "On Nammoor") : "Not on Nammoor yet"].filter(Boolean).join(" · ")}
           </p>
+          {p.user_id === userId && (
+            <Link href="/security/" className="mt-1 text-sm font-medium text-brand underline">Security settings (sign-in, password, App Lock)</Link>
+          )}
           {editable && !p.user_id && p.is_living && (
             <Link href={`/invite/?family=${p.family_id}&person=${p.id}`} className="mt-1 text-sm font-medium text-brand underline">
               Invite {p.full_name.split(" ")[0]} to manage this profile

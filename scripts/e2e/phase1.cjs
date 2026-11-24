@@ -56,10 +56,6 @@ async function removePhotos(familyId) {
     if (paths.length) await storage("DELETE", "/object/person-photos", { prefixes: paths });
   }
 }
-const otpFor = async (email) => {
-  const d = await admin("POST", "/admin/generate_link", { type: "magiclink", email });
-  return d.email_otp ?? d.properties?.email_otp;
-};
 
 // Tiny real PNG (gradient) for the photo upload test.
 function png(w = 200, h = 200) {
@@ -78,11 +74,13 @@ let step = 0;
 const ok = (msg) => console.log(`  ✓ ${msg}`);
 const shot = (page, name) => page.screenshot({ path: path.join(SHOTS, `${String(++step).padStart(2, "0")}-${name}.png`) });
 
+// Users are made with a password (admin key), so the test signs in with Email & Password. No email is sent.
+const PASSWORD = "E2eTest-2026x";
 async function login(page, email, name) {
-  await page.getByLabel("Email").fill(email);
-  await page.getByRole("button", { name: "I already have a code" }).click();
-  await page.getByLabel("Code").fill(await otpFor(email));
-  await page.getByRole("button", { name: "Verify" }).click();
+  await page.getByRole("button", { name: "Sign in with Email & Password" }).click();
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   if (name) {
     await page.getByLabel("Your name").fill(name);
     await page.getByRole("button", { name: "Continue" }).click();
@@ -97,8 +95,8 @@ async function login(page, email, name) {
   const device = devices["Pixel 7"];
   const users = [];
   try {
-    users.push(await admin("POST", "/admin/users", { email: ALICE, email_confirm: true }));
-    users.push(await admin("POST", "/admin/users", { email: BOB, email_confirm: true }));
+    users.push(await admin("POST", "/admin/users", { email: ALICE, password: PASSWORD, email_confirm: true }));
+    users.push(await admin("POST", "/admin/users", { email: BOB, password: PASSWORD, email_confirm: true }));
 
     console.log("Alice");
     const actx = await browser.newContext(device);
@@ -107,7 +105,6 @@ async function login(page, email, name) {
     await a.goto(BASE + "/");
     await shot(a, "welcome");
     await a.getByRole("link", { name: "Sign in or start a family" }).click();
-    await a.getByLabel("Email").fill(ALICE);
     await shot(a, "login");
     await login(a, ALICE, "Alice");
     await a.getByLabel("Family name").fill(FAMILY);

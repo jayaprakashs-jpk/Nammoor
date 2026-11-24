@@ -12,12 +12,19 @@ Family tree, relatives, functions and transport. One codebase: website + Android
 | `npm run check` | Lint + typecheck + unit tests + production build |
 | `npm run db:test` | Throwaway Postgres, apply migrations, run the RLS/integrity tests |
 | `npm run e2e:views` | Offline UI test: tree views, filters, relation names, chat. Pretend Supabase, no secrets |
+| `npm run e2e:auth` | Offline test of every sign-in and security flow (codes, password, forgot password, linking, limits) |
+| `npm run e2e:lock` | App Lock on a simulated Android bridge |
+| `npm run auth:settings` | Shows the Supabase sign-in settings Nammoor needs. Add `-- --apply` to set them |
 | `npm run e2e:smoke` | Signed-out checks against the real Supabase project. No secrets |
 | `npm run e2e:full` | Full Phase 1 flow with two test users. Needs `SUPABASE_SECRET_KEY` in your shell, never in a file |
 | `npm run android:sync` | Build web and copy it into the Android project |
 | `npm run android:apk` | Build a debug APK (needs Android SDK, `ANDROID_HOME`) |
 
 CI (`.github/workflows/ci.yml`) runs all of this on every push and uploads `nammoor-debug-apk`.
+
+## Sign-in and security
+
+See `docs/security-overview.md` and `docs/phone-otp-setup.md` (mobile SMS codes need your MSG91 or Twilio account).
 
 ## Google sign-in
 

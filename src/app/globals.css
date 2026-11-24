@@ -28,3 +28,8 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans);
 }
+
+/* App Lock: nothing but the lock screen is visible while locked. */
+html[data-locked="1"] body > *:not([data-lock-screen]) {
+  visibility: hidden;
+}

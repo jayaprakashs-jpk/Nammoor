@@ -14,7 +14,10 @@
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
     "e2e:smoke": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/smoke.cjs",
     "e2e:full": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/phase1.cjs",
-    "e2e:views": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/views.cjs"
+    "e2e:views": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/views.cjs",
+    "e2e:auth": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/auth.cjs",
+    "e2e:lock": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/lock.cjs",
+    "auth:settings": "python3 scripts/harden-auth.py"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
@@ -23,6 +26,7 @@
     "@capacitor/core": "^8.6.2",
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/share": "^8.0.3",
+    "@capgo/capacitor-native-biometric": "^8.9.3",
     "@supabase/supabase-js": "^2.119.2",
     "next": "16.4.6",
     "react": "19.3.0",

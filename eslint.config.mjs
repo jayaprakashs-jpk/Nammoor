@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Android project + copied web build
     "android/**",
+    // Deno runtime (URL imports, Deno global). Its logic lives in supabase/functions/_shared and is tested.
+    "supabase/functions/send-sms/**",
   ]),
 ]);
 

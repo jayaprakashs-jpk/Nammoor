@@ -26,6 +26,14 @@ const ok = (m) => console.log(`  ✓ ${m}`);
   if (rpc.ok) throw new Error("anon could call create_family");
   ok("anonymous key cannot call create_family");
 
+  // The server itself must refuse weak passwords (the app checks too, but the server is the lock).
+  for (const [pw, why] of [["abc12", "too short"], ["abcdefghijkl", "no number"]]) {
+    const r = await fetch(`${env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/signup`, { method: "POST", headers: { apikey: pub, "Content-Type": "application/json" }, body: JSON.stringify({ email: "weak-check@example.com", password: pw }) });
+    const j = await r.json();
+    if (j.error_code !== "weak_password") throw new Error(`server accepted a password that is ${why}: ${JSON.stringify(j).slice(0, 120)}`);
+  }
+  ok("server refuses weak passwords (too short, no number)");
+
   const server = await serve(path.join(ROOT, "out"));
   const BASE = `http://127.0.0.1:${server.address().port}`;
   const browser = await chromium.launch();
@@ -43,16 +51,19 @@ const ok = (m) => console.log(`  ✓ ${m}`);
     await page.waitForURL(/\/login\/\?next=%2Ftree%2F/);
     ok("signed-out /tree/ redirects to login and remembers where to return");
 
-    await page.getByLabel("Email").fill("nobody@e2e.nammoor.test");
+    await page.getByLabel("Email or mobile number").waitFor();
+    await page.getByRole("button", { name: /Continue with Google/ }).waitFor();
     await page.screenshot({ path: path.join(SHOTS, "02-login.png") });
-    await page.getByRole("button", { name: "I already have a code" }).click();
-    await page.getByLabel("Code").fill("123456");
-    await page.screenshot({ path: path.join(SHOTS, "03-code.png") });
-    await page.getByRole("button", { name: "Verify" }).click();
+    ok("login screen: Google and the one smart box");
+    // A wrong password against the REAL server. Sends no email and creates no user.
+    await page.getByRole("button", { name: "Sign in with Email & Password" }).click();
+    await page.getByLabel("Email", { exact: true }).fill("nobody@e2e.nammoor.test");
+    await page.getByLabel("Password", { exact: true }).fill("Wrongpass1");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.locator("p[role=alert]").waitFor();
     const msg = await page.locator("p[role=alert]").innerText();
-    if (!/wrong or expired/i.test(msg)) throw new Error("unexpected verify error: " + msg);
-    ok(`wrong code shows: "${msg}"`);
+    if (!/Wrong email or password.*4 tries left/.test(msg)) throw new Error("unexpected sign in error: " + msg);
+    ok(`wrong password (real server) shows: "${msg}"`);
 
     await page.goto(BASE + "/invite/");
     await page.getByLabel("Invite code").fill("hello");

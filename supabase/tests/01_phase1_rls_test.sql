@@ -5,8 +5,8 @@
 
 -- ---------- helpers ----------
 create table test.ids (k text primary key, v uuid);
-grant usage on schema test to authenticated, anon;
-grant all on test.ids to authenticated, anon;
+grant usage on schema test to authenticated, anon, service_role;
+grant all on test.ids to authenticated, anon, service_role;
 
 create function test.id(p text) returns uuid language sql stable as $$ select v from test.ids where k = p $$;
 create function test.put(p text, v uuid) returns void language sql as $$
@@ -37,7 +37,7 @@ begin
 end $$;
 create function test.uid(p_email text) returns uuid language sql stable security definer as $$
   select id from auth.users where email = p_email $$;
-grant execute on all functions in schema test to authenticated, anon;
+grant execute on all functions in schema test to authenticated, anon, service_role;
 
 insert into auth.users (id, email, raw_user_meta_data) values
   (gen_random_uuid(), 'alice@x.in',   '{"display_name":"Alice"}'),
@@ -436,13 +436,119 @@ select test.must_fail(format($f$select public.import_family_data(%L, %L::jsonb)$
 select test.must_count('select count(*) from public.persons where full_name = ''Third Parent''', 0, 'tree rule violation left nothing behind');
 reset role;
 
+\echo '16f. every way of signing up gets a working profile and the same rules'
+reset role;
+create temp table su (k text primary key, id uuid);
+grant all on su to authenticated;
+insert into auth.users (id, email, phone, raw_user_meta_data) values
+  (gen_random_uuid(), null,              '919876543210', '{}'),                                                    -- mobile OTP: no email at all
+  (gen_random_uuid(), 'otp@x.in',        null,           '{}'),                                                    -- email OTP
+  (gen_random_uuid(), 'pw@x.in',         null,           '{"display_name":"Ravi Kumar"}'),                         -- email + password with a name
+  (gen_random_uuid(), 'google@x.in',     null,           '{"full_name":"Anita Selvam","name":"Anita S","avatar_url":"x","email_verified":true}'), -- Google
+  (gen_random_uuid(), 'odd@x.in',        '12',           '{"display_name":"  ","full_name":"   "}'),               -- blanks and a bad phone must not break sign up
+  (gen_random_uuid(), 'long@x.in',       null,           json_build_object('name', repeat('x', 300))::jsonb);
+insert into su select 'phone',  id from auth.users where phone = '919876543210';
+insert into su select 'otp',    id from auth.users where email = 'otp@x.in';
+insert into su select 'pw',     id from auth.users where email = 'pw@x.in';
+insert into su select 'google', id from auth.users where email = 'google@x.in';
+insert into su select 'odd',    id from auth.users where email = 'odd@x.in';
+insert into su select 'long',   id from auth.users where email = 'long@x.in';
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id', 6, 'all 6 sign ups got a profile');
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id where su.k = ''phone'' and p.phone = ''+919876543210'' and p.display_name = ''''', 1, 'mobile user: phone on profile, name asked for later');
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id where su.k = ''pw'' and p.display_name = ''Ravi Kumar''', 1, 'name from sign up form');
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id where su.k = ''google'' and p.display_name = ''Anita Selvam''', 1, 'name from Google');
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id where su.k = ''odd'' and p.display_name = '''' and p.phone is null', 1, 'blank names and a short phone are ignored');
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id where su.k = ''long'' and char_length(p.display_name) = 80', 1, 'very long names are cut, not rejected');
+
+-- each one can start a family, and sees only their own
+select test.login_as((select id from su where k = 'phone'));
+set role authenticated;
+select test.put('fam_phone', public.create_family('Phone Kudumbam', null, 'Mobile User', 'female'));
+select test.must_count('select count(*) from public.families', 1, 'mobile user sees only their family');
+reset role;
+select test.login_as((select id from su where k = 'google'));
+set role authenticated;
+select test.put('fam_google', public.create_family('Google Kudumbam'));
+select test.must_count('select count(*) from public.persons where full_name = ''Anita Selvam''', 1, 'Google user node uses their Google name');
+select test.must_count('select count(*) from public.families where id = test.id(''fam_phone'')', 0, 'Google user cannot see the mobile user family');
+reset role;
+select test.login_as((select id from su where k = 'pw'));
+set role authenticated;
+select test.must_count('select count(*) from public.families', 0, 'a new password user starts with nothing');
+select test.must_fail(format('insert into public.persons (family_id, managed_by, full_name) values (%L, auth.uid(), ''Spy'')', test.id('fam_phone')), 'row-level security');
+reset role;
+
+-- invites: an invite locked to an email works for a mobile user only after the email is linked
+select test.login_as((select id from su where k = 'phone'));
+set role authenticated;
+insert into tok values ('locked', public.create_invite(test.id('fam_phone'), 'viewer', null, 'otp@x.in'));
+reset role;
+select test.login_as((select id from su where k = 'pw'));
+set role authenticated;
+select test.must_fail(format('select public.accept_invite(%L)', (select t from tok where k = 'locked')), 'different email');
+reset role;
+select test.login_as((select id from su where k = 'otp'));
+set role authenticated;
+select test.must_count(format('select (public.accept_invite(%L) is not null)::int', (select t from tok where k = 'locked')), 1, 'invite works for the email it was sent to');
+reset role;
+
+-- linking: the same account later gets an email and a new number. Same id, same families.
+update auth.users set email = 'linked@x.in' where id = (select id from su where k = 'phone');
+update auth.users set phone = '919000000001' where id = (select id from su where k = 'google');
+select test.must_count('select count(*) from public.profiles p join su on su.id = p.id where su.k = ''google'' and p.phone = ''+919000000001''', 1, 'linked number reaches the profile');
+select test.login_as((select id from su where k = 'phone'));
+set role authenticated;
+select test.must_count('select count(*) from public.families where id = test.id(''fam_phone'')', 1, 'after linking an email the same family opens');
+insert into tok values ('locked2', public.create_invite(test.id('fam_phone'), 'viewer', null, 'linked@x.in'));
+reset role;
+-- the email-locked invite now fits the linked mobile account too
+select test.login_as((select id from su where k = 'phone'));
+set role authenticated;
+select test.must_count(format('select (public.accept_invite(%L) is not null)::int', (select t from tok where k = 'locked2')), 1, 'email linked later satisfies an email-locked invite');
+reset role;
+
+\echo '16g. SMS rate limit in the database'
+-- anyone but the service key is refused
+set role authenticated;
+select test.must_fail('select public.sms_rate_check(''919876500001'')', 'permission denied');
+reset role;
+set role anon;
+select test.must_fail('select public.sms_rate_check(''919876500001'')', 'permission denied');
+reset role;
+set role service_role;
+select test.must_count('select count(*) from (select public.sms_rate_check(''+91 98765 00001'') as r) x where (r ->> ''allowed'')::boolean', 1, 'request 1 allowed');
+select public.sms_rate_check('919876500001');
+select public.sms_rate_check('+919876500001');   -- same number written differently still counts
+select test.must_count('select count(*) from (select public.sms_rate_check(''919876500001'') as r) x where not (r ->> ''allowed'')::boolean and r ->> ''reason'' = ''number_limit'' and (r ->> ''retry_after'')::int between 1 and 900', 1, '4th request in 15 minutes is refused with a wait time');
+select test.must_count('select count(*) from (select public.sms_rate_check(''919876500002'') as r) x where (r ->> ''allowed'')::boolean', 1, 'a different number is not affected');
+select test.must_count('select count(*) from (select public.sms_rate_check(''14155552671'') as r) x where r ->> ''reason'' = ''country_not_allowed''', 1, 'a number outside India is refused by default');
+select test.must_count('select count(*) from (select public.sms_rate_check(''12345'') as r) x where r ->> ''reason'' = ''bad_number''', 1, 'nonsense numbers refused');
+reset role;
+-- time passes: the oldest request leaves the window and room opens up
+update app.sms_otp_log set at = at - interval '16 minutes' where phone = '919876500001' and allowed;
+set role service_role;
+select test.must_count('select count(*) from (select public.sms_rate_check(''919876500001'') as r) x where (r ->> ''allowed'')::boolean', 1, 'allowed again after 15 minutes');
+reset role;
+-- the global hourly cap stops a fraud run even across many numbers
+update app.sms_settings set hourly_cap = (select count(*) + 1 from app.sms_otp_log where allowed and at > now() - interval '1 hour');
+set role service_role;
+select test.must_count('select count(*) from (select public.sms_rate_check(''919876500003'') as r) x where (r ->> ''allowed'')::boolean', 1, 'last text under the cap goes out');
+select test.must_count('select count(*) from (select public.sms_rate_check(''919876500004'') as r) x where r ->> ''reason'' = ''global_cap''', 1, 'next one is stopped by the hourly cap');
+reset role;
+update app.sms_settings set hourly_cap = 300, allowed_prefixes = array['91', '1'];
+set role service_role;
+select test.must_count('select count(*) from (select public.sms_rate_check(''14155552671'') as r) x where (r ->> ''allowed'')::boolean', 1, 'more countries can be allowed in settings');
+reset role;
+update app.sms_settings set allowed_prefixes = array['91'];
+select test.must_count('select count(*) from app.sms_otp_log where not allowed and phone = ''919876500001''', 1, 'refusals are logged once a minute, not once per attempt');
+
 \echo '17. owner deletes family, everything cascades'
 select test.login('alice@x.in');
 set role authenticated;
 delete from public.families where id = test.id('fam');
 reset role;
-select test.must_count('select count(*) from public.persons', 0, 'persons gone');
-select test.must_count('select count(*) from public.chat_messages', 0, 'chat gone');
-select test.must_count('select count(*) from public.activity_log', 0, 'log gone');
+select test.must_count(format('select count(*) from public.persons where family_id = %L', test.id('fam')), 0, 'persons gone');
+select test.must_count(format('select count(*) from public.chat_messages m join public.chat_rooms r on r.id = m.room_id where r.family_id = %L', test.id('fam')), 0, 'chat gone');
+select test.must_count(format('select count(*) from public.activity_log where family_id = %L', test.id('fam')), 0, 'log gone');
 
 \echo 'ALL PHASE 1 DB TESTS PASSED'

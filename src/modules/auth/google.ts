@@ -2,7 +2,7 @@ import { sb } from "@/shared/lib/supabase";
 import { isNativeApp } from "@/shared/lib/platform";
 import { readLocal, writeLocal } from "@/shared/lib/storage";
 import { safeNext } from "@/shared/lib/session";
-import { friendlyError } from "@/shared/lib/errors";
+import { authError, friendlyError } from "@/shared/lib/errors";
 
 /** The link Google sends people back to inside the Android app. Must match AndroidManifest and Supabase. */
 export const NATIVE_REDIRECT = "com.nammoor.app://auth/callback";
@@ -45,6 +45,19 @@ export async function startGoogleLogin(next: string): Promise<{ error: string | 
   });
   if (error) return { error: friendlyError(error) };
   if (native && data.url) {
+    const { Browser } = await import("@capacitor/browser");
+    await Browser.open({ url: data.url });
+  }
+  return { error: null };
+}
+
+/** Add Google to the account you are signed in with, so both ways open the same family tree. */
+export async function startGoogleLink(next: string): Promise<{ error: string | null }> {
+  writeLocal(AFTER_LOGIN, safeNext(next));
+  const native = isNativeApp();
+  const { data, error } = await sb().auth.linkIdentity({ provider: "google", options: { redirectTo: redirectUrl(), skipBrowserRedirect: native, queryParams: { prompt: "select_account" } } });
+  if (error) return { error: authError(error) };
+  if (native && data?.url) {
     const { Browser } = await import("@capacitor/browser");
     await Browser.open({ url: data.url });
   }
