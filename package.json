@@ -11,7 +11,9 @@
     "db:test": "bash scripts/db-test.sh",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build",
     "android:sync": "npm run build && cap sync android",
-    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug"
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "e2e:smoke": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/smoke.cjs",
+    "e2e:full": "npm run build && NODE_USE_ENV_PROXY=1 node scripts/e2e/phase1.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",

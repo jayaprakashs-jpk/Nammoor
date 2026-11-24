@@ -10,11 +10,22 @@ Family tree, relatives, functions and transport. One codebase: website + Android
 |---|---|
 | `npm run dev` | Local web dev server |
 | `npm run check` | Lint + typecheck + unit tests + production build |
-| `npm run db:test` | Throwaway Postgres, apply migrations, run 17 RLS/integrity test groups |
+| `npm run db:test` | Throwaway Postgres, apply migrations, run the RLS/integrity tests |
+| `npm run e2e:smoke` | Signed-out checks against the real Supabase project. No secrets |
+| `npm run e2e:full` | Full Phase 1 flow with two test users. Needs `SUPABASE_SECRET_KEY` in your shell, never in a file |
 | `npm run android:sync` | Build web and copy it into the Android project |
 | `npm run android:apk` | Build a debug APK (needs Android SDK, `ANDROID_HOME`) |
 
 CI (`.github/workflows/ci.yml`) runs all of this on every push and uploads `nammoor-debug-apk`.
+
+## Supabase
+
+Project `ijvisbjyhkpifhyltrxk`. Migrations in `supabase/migrations` are applied in order
+and recorded in `supabase_migrations.schema_migrations`, so `supabase db push` stays in sync.
+
+Login is a 6-digit email code. **Before real users can log in:** connect your own SMTP
+provider in Supabase (Auth -> Emails -> SMTP), then run `python3 scripts/set-auth-emails.py`
+once. Supabase's built-in sender only mails your own team, 2 per hour, with a link instead of a code.
 
 ## Folder plan
 
@@ -23,8 +34,13 @@ src/
   app/                 Routes only. Each page is 5 lines: dynamic-import a module.
   config/modules.ts    Module registry. Phase 2-4 modules are switched off here.
   modules/             One folder per feature. Never import from another module's insides.
-    auth/  family-tree/ (views/)  profiles/  relations/  chat/  invites/
-  shared/              Code any module can use: supabase client, platform, ui.
+    auth/         Email code login + first-time name
+    family-tree/  Create family, tree list grouped by generation
+    profiles/     Member profile: view, edit, relatives, photo, private salary/DNA
+    invites/      Create + share invites, join with a code
+    relations/    (next) Uravumurai relation engine
+    chat/         (next) Family chat
+  shared/              Code any module can use: supabase client, session, graph, age, ui.
 supabase/
   migrations/          The schema. Source of truth for data + security.
   tests/               Supabase stub + RLS tests (plain SQL).

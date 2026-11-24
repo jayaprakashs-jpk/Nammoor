@@ -6,7 +6,7 @@
 -- ---------- helpers ----------
 create table test.ids (k text primary key, v uuid);
 grant usage on schema test to authenticated, anon;
-grant all on test.ids to authenticated;
+grant all on test.ids to authenticated, anon;
 
 create function test.id(p text) returns uuid language sql stable as $$ select v from test.ids where k = p $$;
 create function test.put(p text, v uuid) returns void language sql as $$
@@ -307,6 +307,34 @@ reset role;
 select test.login('mallory@x.in');
 set role authenticated;
 select test.must_count('select count(*) from storage.objects', 0, 'outsider cannot list photos');
+reset role;
+
+\echo '16b. add_relative + invite_preview'
+select test.login('alice@x.in');
+set role authenticated;
+select test.put('bob_wife', public.add_relative(test.id('bob_node'), 'spouse', '{"full_name":"Priya","gender":"female"}'));
+select test.put('bob_kid2', public.add_relative(test.id('bob_node'), 'child', '{"full_name":"Kid Two","birth_date":"2018-01-01"}'));
+select test.must_count(format('select count(*) from public.parent_child where child_id = %L', test.id('bob_kid2')), 2, 'child gets both parents');
+select test.must_count(format('select count(*) from public.persons where id = %L and birth_precision = ''exact''', test.id('bob_kid2')), 1, 'dob precision defaults to exact');
+select test.put('bob_sis', public.add_relative(test.id('bob_node'), 'sibling', '{"full_name":"Sis","gender":"female","birth_order":1}'));
+select test.must_count(format('select count(*) from public.parent_child where child_id = %L', test.id('bob_sis')), 2, 'sibling shares parents');
+select test.must_fail(format('select public.add_relative(%L, ''father'', ''{"full_name":"X"}'')', test.id('bob_node')), 'already has a father');
+select test.must_fail(format('select public.add_relative(%L, ''sibling'', ''{"full_name":"X"}'')', test.id('bob_wife')), 'add a parent first');
+select test.must_fail(format('select public.add_relative(%L, ''cousin'', ''{"full_name":"X"}'')', test.id('bob_wife')), 'unknown relation');
+select public.add_relative(test.id('bob_wife'), 'father', '{"full_name":"P Appa"}');
+select public.add_relative(test.id('bob_wife'), 'mother', '{"full_name":"P Amma"}');
+select test.must_count('select count(*) from public.unions u join public.persons a on a.id = u.partner_a join public.persons b on b.id = u.partner_b where a.full_name in (''P Appa'', ''P Amma'') and b.full_name in (''P Appa'', ''P Amma'')', 1, 'parents auto married');
+insert into tok values ('preview', public.create_invite(test.id('fam'), 'viewer'));
+reset role;
+select t as preview_tok from tok where k = 'preview' \gset
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_fail(format('select public.add_relative(%L, ''child'', ''{"full_name":"x"}'')', test.id('bob_node')), 'row-level security');
+reset role;
+set role anon;
+select test.must_count(format('select count(*) from public.invite_preview(%L) where family_name = ''Ramasamy Kudumbam'' and invited_by = ''Alice''', :'preview_tok'), 1, 'anon sees preview with token');
+select test.must_count('select count(*) from public.invite_preview(''bad'')', 0, 'bad token gives nothing');
+select test.must_fail(format('select public.add_relative(%L, ''child'', ''{"full_name":"x"}'')', test.id('bob_node')), 'permission denied');
 reset role;
 
 \echo '17. owner deletes family, everything cascades'

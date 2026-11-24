@@ -1,9 +1,21 @@
 "use client";
 
-import { ModuleShell } from "@/shared/ui/ModuleShell";
+import { useSearchParams } from "next/navigation";
+import { CreateInvite } from "./CreateInvite";
+import { JoinFamily } from "./JoinFamily";
+import { RequireAuth } from "@/shared/ui/RequireAuth";
 
-// Entry point of the invites module. Loaded with next/dynamic, so none of this
-// module's code is downloaded until its screen is opened.
+// /invite/?family=ID[&person=ID] -> make an invite (signed in)
+// /invite/?t=CODE or /invite/       -> join a family (preview works signed out)
 export default function InvitesModule() {
-  return <ModuleShell title="Join family" note="Module loaded on demand. Phase 1 UI comes after approval." />;
+  const params = useSearchParams();
+  const family = params.get("family");
+  if (family) {
+    return (
+      <RequireAuth>
+        {(uid) => <CreateInvite familyId={family} personId={params.get("person")} userId={uid} />}
+      </RequireAuth>
+    );
+  }
+  return <JoinFamily initialCode={params.get("t") ?? ""} />;
 }
