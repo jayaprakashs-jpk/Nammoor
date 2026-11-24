@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Enums } from "@/shared/lib/supabase";
 import { Input, Select } from "@/shared/ui/form";
 
@@ -17,7 +18,6 @@ export function DateInput({
   onChange: (value: string | null, precision: Precision) => void;
   label: string;
 }) {
-  const year = value?.slice(0, 4) ?? "";
   const month = value?.slice(0, 7) ?? "";
 
   return (
@@ -48,10 +48,37 @@ export function DateInput({
             onChange={(e) => onChange(e.target.value ? `${e.target.value}-01` : null, precision)} />
         )}
         {(precision === "year" || precision === "approx") && (
-          <Input type="number" inputMode="numeric" aria-label={label} placeholder="Year" min={1800} max={2100} value={year}
-            onChange={(e) => onChange(/^\d{4}$/.test(e.target.value) ? `${e.target.value}-01-01` : null, precision)} />
+          <YearField key={precision} label={label} initial={value?.slice(0, 4) ?? ""}
+            onYear={(y) => onChange(y ? `${y}-01-01` : null, precision)} />
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Keeps what the person is typing in its own text. The saved date stays empty
+ * until all 4 digits are in, so showing the saved date here would wipe the box
+ * after the first key.
+ */
+function YearField({ label, initial, onYear }: { label: string; initial: string; onYear: (year: string | null) => void }) {
+  const [text, setText] = useState(initial);
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      maxLength={4}
+      autoComplete="off"
+      aria-label={label}
+      placeholder="Year, e.g. 1950"
+      value={text}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+        setText(digits);
+        const n = Number(digits);
+        onYear(digits.length === 4 && n >= 1800 && n <= 2100 ? digits : null);
+      }}
+    />
   );
 }

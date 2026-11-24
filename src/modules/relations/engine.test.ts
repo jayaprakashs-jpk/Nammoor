@@ -27,7 +27,7 @@ const people: P[] = [
   { id: "mama", g: "male", ord: 1 }, { id: "mChithi", g: "female", ord: 3 },
   { id: "mami", g: "female" }, { id: "mamaDau", g: "female" },
   { id: "mChithappa", g: "male" }, { id: "mChithiKid", g: "female" },
-  { id: "wife", g: "female" }, { id: "wF", g: "male" }, { id: "wM", g: "female" },
+  { id: "wife", g: "female", ord: 2 }, { id: "wF", g: "male" }, { id: "wM", g: "female" },
   { id: "wBro", g: "male", ord: 1 }, { id: "wSis", g: "female", ord: 3 },
   { id: "kid", g: "male", dob: "2018-01-01" }, { id: "akkaSon", g: "male" }, { id: "thambiSon", g: "male" },
   { id: "ggf", g: "male" }, { id: "gf", g: "male" }, // father of thatha, and thatha's own father line
@@ -130,9 +130,40 @@ describe("Tamil relation names", () => {
     expect(ta("wF")).toBe("மாமனார்");
     expect(ta("wM")).toBe("மாமியார்");
     expect(ta("wBro")).toBe("மச்சான்");
-    expect(ta("wSis")).toBe("மச்சினி");
+    expect(ta("wSis")).toBe("மச்சினி"); // wife is #2, her sister #3
     expect(ta("kidWife")).toBe("மருமகள்"); // son's wife
     expect(ta("kwF")).toBe("சம்மந்தி"); // son's wife's father
+  });
+  it("your corrected terms: younger brother's wife, wife's elder sister, husband's elder brother", () => {
+    expect(ta("thambi")).toBe("தம்பி");
+    const mk = (extraPersons: ReturnType<typeof person>[], parents: string[][], unions: (string | null)[][]) =>
+      buildGraph({ persons: extraPersons, parents: parents.map((p) => [...p, "biological"]), unions } as never);
+    // I have a younger brother (born 1995) with a wife
+    const a = mk(
+      [person({ id: "me2", g: "male", dob: "1990-01-01" }), person({ id: "bro", g: "male", dob: "1995-01-01" }), person({ id: "bw", g: "female" }), person({ id: "d", g: "male" })],
+      [["d", "me2"], ["d", "bro"]], [["bro", "bw", null, null, null]],
+    );
+    expect(labelFor(computeRelations(a, "me2").get("bw"), "tamil").title).toBe("மைத்துனி");
+    // my wife's elder sister, then younger sister
+    const w = mk(
+      [person({ id: "me3", g: "male" }), person({ id: "wf", g: "female", dob: "1992-01-01" }), person({ id: "sis1", g: "female", dob: "1988-01-01" }), person({ id: "sis2", g: "female", dob: "1996-01-01" }), person({ id: "dad", g: "male" })],
+      [["dad", "wf"], ["dad", "sis1"], ["dad", "sis2"]], [["me3", "wf", null, null, null]],
+    );
+    const rw = computeRelations(w, "me3");
+    expect(labelFor(rw.get("sis1"), "tamil").title).toBe("அக்கா");
+    expect(labelFor(rw.get("sis2"), "tamil").title).toBe("மச்சினி");
+    // my wife's age unknown: both names, plus a hint to add the age
+    const u = mk(
+      [person({ id: "me4", g: "male" }), person({ id: "wf4", g: "female" }), person({ id: "sis4", g: "female" }), person({ id: "dad4", g: "male" })],
+      [["dad4", "wf4"], ["dad4", "sis4"]], [["me4", "wf4", null, null, null]],
+    );
+    expect(labelFor(computeRelations(u, "me4").get("sis4"), "tamil").title).toBe("அக்கா / மச்சினி");
+    // my husband's elder brother (I am a woman)
+    const h = mk(
+      [person({ id: "she", g: "female" }), person({ id: "hus", g: "male", dob: "1990-01-01" }), person({ id: "hb", g: "male", dob: "1985-01-01" }), person({ id: "hd", g: "male" })],
+      [["hd", "hus"], ["hd", "hb"]], [["she", "hus", null, null, null]],
+    );
+    expect(labelFor(computeRelations(h, "she").get("hb"), "tamil").title).toBe("அண்ணா");
   });
   it("nephews: sister's son is Marumagan, brother's son is Thambi magan (male speaker)", () => {
     expect(ta("akkaSon")).toBe("மருமகன்");

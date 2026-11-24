@@ -173,6 +173,21 @@ async function mockSupabase(page, log) {
     await page.screenshot({ path: path.join(SHOTS, "v6-profile-relation.png") });
     ok("profile shows 'your relation'");
 
+    // DOB year box: type like a person does, one key at a time (the Android bug)
+    await page.goto(BASE + "/person/?id=me");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByLabel("Date of birth known as").selectOption("year");
+    const yr = page.getByLabel("Date of birth", { exact: true });
+    if ((await yr.getAttribute("inputmode")) !== "numeric") throw new Error("year box does not ask for the number keypad");
+    await yr.fill("");
+    await yr.pressSequentially("1", { delay: 80 });
+    if ((await yr.inputValue()) !== "1") throw new Error("first digit was wiped: " + (await yr.inputValue()));
+    await yr.pressSequentially("985abc", { delay: 80 });
+    if ((await yr.inputValue()) !== "1985") throw new Error("year box shows " + (await yr.inputValue()));
+    await page.getByLabel("Date of birth known as").selectOption("approx");
+    if ((await page.getByLabel("Date of birth", { exact: true }).inputValue()) !== "1985") throw new Error("year lost when switching to About");
+    ok("DOB year box: digits stay, letters ignored, 4 digit limit, numeric keypad");
+
     await page.goto(BASE + "/chat/?family=fam1");
     await page.getByText("Family chat").waitFor();
     await page.getByText("Pongal plan").waitFor();
