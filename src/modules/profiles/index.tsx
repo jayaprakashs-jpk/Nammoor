@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { sb } from "@/shared/lib/supabase";
@@ -21,6 +22,11 @@ import { ContactEditor, EducationEditor, WorkEditor } from "./Details";
 import { PrivateEditor, SharedPrivateView } from "./PrivatePanel";
 import { Relatives } from "./Relatives";
 import { COUNTRIES, EDUCATION_LEVELS, INDIAN_STATES } from "./places";
+import { ProfileDuplicateHint } from "./DuplicateHints";
+
+// Album, voice stories and recorder code download only on a profile, and only when it is shown.
+const VoiceStories = dynamic(() => import("@/modules/voice/VoiceStories"), { ssr: false });
+const AlbumSection = dynamic(() => import("@/modules/album/AlbumSection"), { ssr: false });
 
 export default function ProfilesModule() {
   return <RequireAuth>{(uid) => <PersonRoute userId={uid} />}</RequireAuth>;
@@ -70,6 +76,8 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
 
   const { person: p } = bundle;
   const editable = canEdit(p, bundle.myRole, userId);
+  const contributes = bundle.myRole === "owner" || bundle.myRole === "admin" || bundle.myRole === "editor";
+  const isAdminRole = bundle.myRole === "owner" || bundle.myRole === "admin";
   const isOwner = ownsPrivate(p, userId);
   const saved = () => {
     invalidateGraph(p.family_id);
@@ -136,6 +144,10 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
       <main className="mx-auto flex w-full max-w-xl flex-col gap-4 p-4">
         <div className="flex flex-col items-center gap-1 text-center">
           <PhotoPicker person={p} editable={editable} onChanged={saved} />
+          <div className="w-full max-w-sm text-left">
+            {/* clean play / pause bar right under the photo */}
+            <VoiceStories familyId={p.family_id} personId={p.id} photoId={null} canAdd={contributes} userId={userId} isAdmin={isAdminRole} />
+          </div>
           <p className="text-xl font-semibold">
             {p.initials && <span className="opacity-70">{p.initials} </span>}
             {p.full_name}
@@ -205,7 +217,11 @@ function PersonScreen({ id, userId }: { id: string; userId: string }) {
           </>
         )}
 
+        {!editing && <ProfileDuplicateHint familyId={p.family_id} personId={p.id} canRequest={contributes} />}
+
         <Relatives person={p} graph={bundle.graph} editable={editable} onChanged={() => reload(true)} />
+
+        {!editing && <AlbumSection familyId={p.family_id} personId={p.id} userId={userId} canAdd={contributes} isAdmin={isAdminRole} />}
 
         {isOwner ? (
           <PrivateEditor key={bundle.privateFields.map((f) => f.updated_at).join()} bundle={bundle} userId={userId} onSaved={() => reload(true)} />

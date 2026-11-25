@@ -10,6 +10,7 @@ import { friendlyError } from "@/shared/lib/errors";
 import { Avatar } from "@/shared/ui/Avatar";
 import { Button, ErrorText, Field, Input, Section, Select } from "@/shared/ui/form";
 import { DateInput } from "./DateInput";
+import { AddDuplicateHint } from "./DuplicateHints";
 import type { Person } from "./api";
 
 type Relation = "father" | "mother" | "spouse" | "child" | "sibling";
@@ -169,6 +170,7 @@ function AddRelative({ person, choice, onCancel, onAdded }: {
   const [dob, setDob] = useState<string | null>(null);
   const [prec, setPrec] = useState<Precision>("unknown");
   const [order, setOrder] = useState("");
+  const [place, setPlace] = useState("");
   const [dead, setDead] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -183,7 +185,7 @@ function AddRelative({ person, choice, onCancel, onAdded }: {
       p_relation: choice.relation,
       p_person: {
         full_name: name.trim(), gender, birth_date: dob, birth_precision: dob ? prec : "unknown",
-        birth_order: order ? Number(order) : null, is_living: !dead,
+        birth_order: order ? Number(order) : null, is_living: !dead, native_place: place.trim() || null,
       },
     });
     setBusy(false);
@@ -211,6 +213,10 @@ function AddRelative({ person, choice, onCancel, onAdded }: {
           <Input type="number" inputMode="numeric" min={1} max={30} value={order} onChange={(e) => setOrder(e.target.value)} />
         </Field>
       )}
+      <Field label="Native place (oor)" hint="Optional. Helps us spot people already in your tree.">
+        <Input maxLength={120} value={place} onChange={(e) => setPlace(e.target.value)} />
+      </Field>
+      <AddDuplicateHint familyId={person.family_id} anchorId={person.id} candidate={{ name, birthYear: dob && prec !== "unknown" ? Number(dob.slice(0, 4)) : null, nativePlace: place, gender }} />
       <label className="flex min-h-12 items-center gap-3">
         <input type="checkbox" className="h-5 w-5" checked={dead} onChange={(e) => setDead(e.target.checked)} />
         <span>Passed away</span>

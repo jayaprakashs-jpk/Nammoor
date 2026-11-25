@@ -14,6 +14,7 @@ Family tree, relatives, functions and transport. One codebase: website + Android
 | `npm run e2e:views` | Offline UI test: tree views, filters, relation names, chat. Pretend Supabase, no secrets |
 | `npm run e2e:auth` | Offline test of every sign-in and security flow (codes, password, forgot password, linking, limits) |
 | `npm run e2e:lock` | App Lock on a simulated Android bridge |
+| `npm run e2e:heritage` | Voice stories, album, polls, recipes, PDFs, duplicate hints, Android recorder + share path |
 | `npm run auth:settings` | Shows the Supabase sign-in settings Nammoor needs. Add `-- --apply` to set them |
 | `npm run e2e:smoke` | Signed-out checks against the real Supabase project. No secrets |
 | `npm run e2e:full` | Full Phase 1 flow with two test users. Needs `SUPABASE_SECRET_KEY` in your shell, never in a file |
@@ -25,6 +26,10 @@ CI (`.github/workflows/ci.yml`) runs all of this on every push and uploads `namm
 ## Sign-in and security
 
 See `docs/security-overview.md` and `docs/phone-otp-setup.md` (mobile SMS codes need your MSG91 or Twilio account).
+
+## Heritage features
+
+Voice stories, photo album with one-tap clean up, optional AI restore, family polls, recipes, PDF poster and story book, duplicate hints. See `docs/heritage-setup.md` (AI restore needs a Replicate token).
 
 ## Google sign-in
 
@@ -56,7 +61,12 @@ src/
     invites/      Create + share invites, join with a code
     backup/       Export (.json, GEDCOM 5.5.1) and import with duplicate check, native Share sheet
     relations/    Uravumurai engine. terms.ts is the name table: edit rows there, native speakers should review
-    chat/         Family room, private groups, live messages
+    chat/         Family room, private groups, live messages, polls
+    album/        Photo album, one-tap clean up, optional AI restore
+    voice/        Voice stories (recorder, audio bar)
+    recipes/      Kudumba Samayal
+    print/        Tree poster + story book PDF, made on the phone
+    merge/        Merge requests (admin approves)
   shared/              Code any module can use: supabase client, session, graph, age, ui.
 supabase/
   migrations/          The schema. Source of truth for data + security.

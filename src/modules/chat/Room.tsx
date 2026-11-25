@@ -1,15 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import dynamic from "next/dynamic";
 import { sb } from "@/shared/lib/supabase";
 import { friendlyError } from "@/shared/lib/errors";
 import { Header } from "@/shared/ui/Header";
 import { ModuleLoading } from "@/shared/ui/ModuleLoading";
 import { ErrorText } from "@/shared/ui/form";
 import { dayKey, dayLabel, mergeMessages, newId, timeLabel, type Msg } from "./messages";
+import { PollCard, type PollState } from "./PollCard";
+import { withMyVote, type Poll, type PollOption } from "./polls";
+
+// The poll form downloads only when someone taps "Poll".
+const NewPoll = dynamic(() => import("./NewPoll"), { ssr: false });
 
 const PAGE = 40;
-const COLS = "id, room_id, sender_id, body, created_at, edited_at, deleted_at";
+const COLS = "id, room_id, sender_id, body, created_at, edited_at, deleted_at, poll_id";
 const NAME_COLORS = ["#0369a1", "#be185d", "#047857", "#b45309", "#7c3aed", "#0f766e", "#c2410c"];
 const colorFor = (id: string) => NAME_COLORS[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % NAME_COLORS.length];
 
@@ -23,6 +29,10 @@ export function Room({ roomId, familyId, userId }: { roomId: string; familyId: s
   const [loadError, setLoadError] = useState(""); // problems opening the room
   const [menu, setMenu] = useState<string | null>(null);
   const [older, setOlder] = useState(false);
+  const [polls, setPolls] = useState<Map<string, PollState>>(new Map());
+  const [asking, setAsking] = useState(false);
+  const [canModerate, setCanModerate] = useState(false);
+  const asked = useRef(new Set<string>()); // poll ids already requested
   const bottom = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const newest = useRef<string | null>(null); // newest confirmed message time
@@ -60,6 +70,57 @@ export function Room({ roomId, familyId, userId }: { roomId: string; familyId: s
     };
   }, [roomId, add, markRead]);
 
+  // Polls: load the cards for the poll messages we hold (votes are private to each person by the database).
+  const loadPolls = useCallback(async (ids: string[]) => {
+    if (!ids.length) return;
+    const [p, o, v] = await Promise.all([
+      sb().from("polls").select("id, room_id, question, created_by, closes_at, closed_at").in("id", ids),
+      sb().from("poll_options").select("id, poll_id, label, position, votes").in("poll_id", ids),
+      sb().from("poll_votes").select("poll_id, option_id").in("poll_id", ids),
+    ]);
+    if (p.error || o.error) return;
+    setPolls((cur) => {
+      const next = new Map(cur);
+      for (const row of (p.data ?? []) as Poll[]) {
+        const options = ((o.data ?? []) as PollOption[]).filter((x) => x.poll_id === row.id);
+        const mine = (v.data ?? []).find((x) => x.poll_id === row.id)?.option_id ?? cur.get(row.id)?.mine ?? null;
+        next.set(row.id, { poll: row, options, mine });
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const need = msgs.map((m) => m.poll_id).filter((id): id is string => !!id && !asked.current.has(id));
+    if (!need.length) return;
+    need.forEach((id) => asked.current.add(id));
+    loadPolls(need);
+  }, [msgs, loadPolls]);
+
+  useEffect(() => {
+    sb().from("family_members").select("role").eq("family_id", familyId).eq("user_id", userId).maybeSingle()
+      .then(({ data }) => setCanModerate(data?.role === "owner" || data?.role === "admin"));
+  }, [familyId, userId]);
+
+  async function vote(pollId: string, optionId: string) {
+    const s = polls.get(pollId);
+    if (!s || s.mine === optionId) return;
+    setError("");
+    setPolls((c) => new Map(c).set(pollId, { ...s, options: withMyVote(s.options, s.mine, optionId), mine: optionId }));
+    const { error } = await sb().rpc("vote_poll", { p_poll_id: pollId, p_option_id: optionId });
+    if (error) {
+      setError(friendlyError(error));
+      loadPolls([pollId]); // show the truth again
+    }
+  }
+
+  async function closePoll(pollId: string) {
+    if (!window.confirm("Close this poll? Nobody can vote after this.")) return;
+    const { error } = await sb().rpc("close_poll", { p_poll_id: pollId });
+    if (error) return setError(friendlyError(error));
+    loadPolls([pollId]);
+  }
+
   const fetchNewer = useCallback(async () => {
     let q = sb().from("chat_messages").select(COLS).eq("room_id", roomId).order("created_at", { ascending: true }).limit(100);
     if (newest.current) q = q.gt("created_at", newest.current);
@@ -80,8 +141,27 @@ export function Room({ roomId, familyId, userId }: { roomId: string; familyId: s
         add([m]);
         if (m.sender_id !== userId && document.visibilityState === "visible") markRead();
       })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "poll_options" }, (p) => {
+        const o = p.new as PollOption;
+        setPolls((cur) => {
+          const s = cur.get(o.poll_id);
+          if (!s) return cur;
+          return new Map(cur).set(o.poll_id, { ...s, options: s.options.map((x) => (x.id === o.id ? { ...x, votes: o.votes } : x)) });
+        });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "polls" }, (p) => {
+        const row = p.new as Poll;
+        setPolls((cur) => {
+          const s = cur.get(row.id);
+          return s ? new Map(cur).set(row.id, { ...s, poll: { ...s.poll, closed_at: row.closed_at, closes_at: row.closes_at } }) : cur;
+        });
+      })
       .subscribe();
-    const tick = () => document.visibilityState === "visible" && fetchNewer();
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchNewer();
+      if (asked.current.size) loadPolls([...asked.current]);
+    };
     const timer = window.setInterval(tick, 25000);
     document.addEventListener("visibilitychange", tick);
     window.addEventListener("online", tick);
@@ -91,7 +171,7 @@ export function Room({ roomId, familyId, userId }: { roomId: string; familyId: s
       document.removeEventListener("visibilitychange", tick);
       window.removeEventListener("online", tick);
     };
-  }, [roomId, userId, add, fetchNewer, markRead]);
+  }, [roomId, userId, add, fetchNewer, markRead, loadPolls]);
 
   // stay at the bottom when new messages arrive, unless you scrolled up to read
   useEffect(() => {
@@ -172,11 +252,16 @@ export function Room({ roomId, familyId, userId }: { roomId: string; familyId: s
               {newDay && <p className="my-2 self-center rounded-full bg-black/5 px-3 py-0.5 text-xs dark:bg-white/10">{dayLabel(m.created_at)}</p>}
               <div className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
                 {showName && <span className="px-1 text-xs font-semibold" style={{ color: colorFor(m.sender_id) }}>{names.get(m.sender_id) ?? "Family member"}</span>}
+                {m.poll_id && polls.get(m.poll_id) && !m.deleted_at ? (
+                  <PollCard s={polls.get(m.poll_id)!} mine={mine} canClose={polls.get(m.poll_id)!.poll.created_by === userId || canModerate}
+                    onVote={(o) => vote(m.poll_id!, o)} onClose={() => closePoll(m.poll_id!)} />
+                ) : (
                 <button type="button" onClick={() => mine && !m.deleted_at && setMenu(menu === m.id ? null : m.id)}
                   className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-left text-[15px] ${
                     mine ? "bg-brand text-white" : "bg-black/5 dark:bg-white/10"} ${m.deleted_at ? "italic opacity-60" : ""} ${m.state === "sending" ? "opacity-70" : ""}`}>
                   {m.deleted_at ? "This message was deleted" : m.body}
                 </button>
+                )}
                 <span className="px-1 text-[10px] opacity-50">
                   {m.state === "sending" ? "Sending..." : m.state === "failed" ? "" : timeLabel(m.created_at)}
                   {m.state === "failed" && (
@@ -194,10 +279,17 @@ export function Room({ roomId, familyId, userId }: { roomId: string; familyId: s
         })}
         <div ref={bottom} />
       </main>
+      {asking && (
+        // a sheet of its own (a form inside the message form would not be valid HTML)
+        <div className="fixed inset-x-0 bottom-0 z-20 max-h-[90vh] overflow-y-auto bg-black/40 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <NewPoll roomId={roomId} onCancel={() => setAsking(false)} onDone={() => { setAsking(false); fetchNewer(); }} />
+        </div>
+      )}
       <form onSubmit={send} className="fixed inset-x-0 bottom-0 z-10 border-t border-black/10 bg-background/95 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] dark:border-white/15">
         <div className="mx-auto flex max-w-xl flex-col gap-1">
           <ErrorText>{error}</ErrorText>
           <div className="flex items-end gap-2">
+            <button type="button" aria-label="Make a poll" onClick={() => setAsking((a) => !a)} className="min-h-12 rounded-2xl border border-black/15 px-3 text-lg dark:border-white/20">📊</button>
             <textarea value={text} onChange={(e) => setText(e.target.value)} rows={1} maxLength={4000} placeholder="Message"
               aria-label="Message"
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && window.matchMedia("(pointer: fine)").matches) { e.preventDefault(); send(); } }}

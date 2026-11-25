@@ -6,6 +6,7 @@ import { invalidateGraph } from "@/shared/lib/graphStore";
 import { friendlyError } from "@/shared/lib/errors";
 import { toast } from "@/shared/ui/Toast";
 import { Button, ErrorText, Field, Input } from "@/shared/ui/form";
+import { AddDuplicateHint } from "@/modules/profiles/DuplicateHints";
 
 // A small sheet for the "+ Add Father" and "+ Add Mother" cards.
 export function QuickAdd({ familyId, childId, childName, role, onClose, onAdded }: {
@@ -13,6 +14,7 @@ export function QuickAdd({ familyId, childId, childName, role, onClose, onAdded 
 }) {
   const [name, setName] = useState("");
   const [year, setYear] = useState("");
+  const [place, setPlace] = useState("");
   const [dead, setDead] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -26,7 +28,7 @@ export function QuickAdd({ familyId, childId, childName, role, onClose, onAdded 
     const { error } = await sb().rpc("add_relative", {
       p_anchor: childId,
       p_relation: role,
-      p_person: { full_name: name.trim(), birth_date: year ? `${year}-01-01` : null, birth_precision: year ? "year" : "unknown", is_living: !dead },
+      p_person: { full_name: name.trim(), birth_date: year ? `${year}-01-01` : null, birth_precision: year ? "year" : "unknown", is_living: !dead, native_place: place.trim() || null },
     });
     setBusy(false);
     if (error) {
@@ -49,6 +51,10 @@ export function QuickAdd({ familyId, childId, childName, role, onClose, onAdded 
         <Field label="Year of birth" hint="Optional. You can add more details later.">
           <Input inputMode="numeric" pattern="[0-9]*" maxLength={4} value={year} onChange={(e) => setYear(e.target.value.replace(/\D/g, "").slice(0, 4))} />
         </Field>
+        <Field label="Native place (oor)" hint="Optional. Helps us spot people already in your tree.">
+          <Input maxLength={120} value={place} onChange={(e) => setPlace(e.target.value)} />
+        </Field>
+        <AddDuplicateHint familyId={familyId} anchorId={childId} candidate={{ name, birthYear: /^\d{4}$/.test(year) ? Number(year) : null, nativePlace: place }} />
         <label className="flex min-h-12 items-center gap-3">
           <input type="checkbox" className="h-5 w-5" checked={dead} onChange={(e) => setDead(e.target.checked)} />
           <span>Passed away</span>

@@ -18,6 +18,7 @@ const eslintConfig = defineConfig([
     "android/**",
     // Deno runtime (URL imports, Deno global). Its logic lives in supabase/functions/_shared and is tested.
     "supabase/functions/send-sms/**",
+    "supabase/functions/restore-photo/**",
   ]),
 ]);
 

@@ -294,6 +294,9 @@ function TreeScreen({ userId }: { userId: string }) {
         )}
 
         <div className="mt-4 flex flex-col gap-2">
+          <Link href={`/recipes/?family=${family.id}`} className="text-center text-sm text-brand underline">Family recipes &middot; குடும்ப சமையல்</Link>
+          <Link href={`/print/?family=${family.id}`} className="text-center text-sm text-brand underline">Print tree poster &amp; story book</Link>
+          <Link href={`/merge/?family=${family.id}`} className="text-center text-sm text-brand underline">Merge requests</Link>
           {(family.role === "owner" || family.role === "admin") && (
             <Link href={`/backup/?family=${family.id}`} className="text-center text-sm text-brand underline">Backup, export &amp; import</Link>
           )}

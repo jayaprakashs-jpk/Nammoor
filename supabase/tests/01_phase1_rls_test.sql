@@ -542,6 +542,269 @@ reset role;
 update app.sms_settings set allowed_prefixes = array['91'];
 select test.must_count('select count(*) from app.sms_otp_log where not allowed and phone = ''919876500001''', 1, 'refusals are logged once a minute, not once per attempt');
 
+\echo '16h. heritage: album photos, voice stories, recipes'
+reset role;
+-- dave is an editor of the family; erin is in a completely separate family
+insert into auth.users (id, email) values (gen_random_uuid(), 'dave@x.in'), (gen_random_uuid(), 'erin@x.in');
+insert into public.family_members (family_id, user_id, role) select test.id('fam'), id, 'editor' from auth.users where email = 'dave@x.in';
+select test.login('erin@x.in');
+set role authenticated;
+select test.put('fam_erin', public.create_family('Erin Kudumbam'));
+select test.put('erin_node', (select id from public.persons where family_id = test.id('fam_erin') limit 1));
+reset role;
+select test.put('lakshmi', (select id from public.persons where family_id = test.id('fam') and full_name = 'Lakshmi'));
+
+select test.login('dave@x.in');
+set role authenticated;
+-- album
+insert into public.person_photos (id, family_id, person_id, path, caption, year)
+values ('11111111-1111-4111-8111-aaaaaaaaaaaa', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/' || test.id('lakshmi') || '/old.webp', 'Wedding day', 1975);
+select test.must_count('select count(*) from public.person_photos', 1, 'editor adds an album photo');
+select test.must_fail(format('insert into public.person_photos (family_id, person_id, path) values (%L, %L, %L)', test.id('fam'), test.id('lakshmi'), test.id('fam_erin') || '/x/y.webp'), 'check constraint');
+select test.must_fail(format('insert into public.person_photos (family_id, person_id, path, kind) values (%L, %L, %L, ''ai_restored'')', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/a/b.webp'), 'permission denied');
+select test.must_fail(format('insert into public.person_photos (family_id, person_id, path) values (%L, %L, %L)', test.id('fam_erin'), test.id('erin_node'), test.id('fam_erin') || '/a/b.webp'), 'row-level security');
+select test.must_fail(format('insert into public.person_photos (family_id, person_id, path, created_by) values (%L, %L, %L, %L)', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/a/c.webp', test.uid('alice@x.in')), 'permission denied');
+-- voice stories
+insert into public.voice_memories (id, family_id, person_id, audio_path, duration_sec, title)
+values ('22222222-2222-4222-8222-aaaaaaaaaaaa', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/' || test.id('lakshmi') || '/s1.aac', 95, 'How we met');
+insert into public.voice_memories (family_id, person_id, photo_id, audio_path, duration_sec)
+values (test.id('fam'), test.id('lakshmi'), '11111111-1111-4111-8111-aaaaaaaaaaaa', test.id('fam') || '/' || test.id('lakshmi') || '/s2.aac', 180);
+select test.must_count('select count(*) from public.voice_memories', 2, 'story about a person and about a photo');
+select test.must_fail(format('insert into public.voice_memories (family_id, person_id, audio_path, duration_sec) values (%L, %L, %L, 186)', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/a.aac'), 'check constraint');
+select test.must_fail(format('insert into public.voice_memories (family_id, person_id, audio_path, duration_sec) values (%L, %L, %L, 0)', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/a.aac'), 'check constraint');
+select test.must_fail(format('insert into public.voice_memories (family_id, person_id, audio_path, duration_sec) values (%L, %L, %L, 30)', test.id('fam'), test.id('lakshmi'), test.id('fam_erin') || '/a.aac'), 'check constraint');
+select test.must_fail(format('insert into public.voice_memories (family_id, person_id, audio_path, duration_sec, author_id) values (%L, %L, %L, 30, %L)', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/a.aac', test.uid('alice@x.in')), 'permission denied');
+-- recipes
+insert into public.recipes (id, family_id, person_id, title, title_native, ingredients, steps)
+values ('33333333-3333-4333-8333-aaaaaaaaaaaa', test.id('fam'), test.id('lakshmi'), 'Pongal', 'பொங்கல்', E'rice\nmoong dal\nghee', E'Boil.\nAdd ghee.');
+select test.must_count('select count(*) from public.recipes where title_native = ''பொங்கல்''', 1, 'recipe with Tamil name saved');
+select test.must_fail(format('insert into public.recipes (family_id, person_id, title) values (%L, %L, ''x'')', test.id('fam'), test.id('erin_node')), 'foreign key');
+select test.must_fail(format('insert into public.recipes (family_id, title, photo_path) values (%L, ''x'', %L)', test.id('fam'), test.id('fam_erin') || '/r.webp'), 'check constraint');
+reset role;
+
+-- viewer (carol) reads but cannot add
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_count('select count(*) from public.person_photos', 1, 'viewer sees the album');
+select test.must_count('select count(*) from public.voice_memories', 2, 'viewer hears the stories');
+select test.must_count('select count(*) from public.recipes', 1, 'viewer reads recipes');
+select test.must_fail(format('insert into public.person_photos (family_id, person_id, path) values (%L, %L, %L)', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/a/v.webp'), 'row-level security');
+select test.must_fail(format('insert into public.voice_memories (family_id, person_id, audio_path, duration_sec) values (%L, %L, %L, 30)', test.id('fam'), test.id('lakshmi'), test.id('fam') || '/v.aac'), 'row-level security');
+select test.must_fail(format('insert into public.recipes (family_id, title) values (%L, ''x'')', test.id('fam')), 'row-level security');
+-- and cannot delete or edit what others made
+delete from public.voice_memories;
+update public.person_photos set caption = 'hacked';
+reset role;
+select test.must_count('select count(*) from public.voice_memories', 2, 'viewer could not delete stories');
+select test.must_count('select count(*) from public.person_photos where caption = ''Wedding day''', 1, 'viewer could not edit a caption');
+
+-- outsiders (another family, and nobody) see nothing at all
+select test.login('erin@x.in');
+set role authenticated;
+select test.must_count('select count(*) from public.person_photos', 0, 'other family sees no photos');
+select test.must_count('select count(*) from public.voice_memories', 0, 'other family hears no stories');
+select test.must_count('select count(*) from public.recipes', 0, 'other family sees no recipes');
+reset role;
+set role anon;
+select test.must_fail('select * from public.recipes', 'permission denied');
+select test.must_fail('select * from public.voice_memories', 'permission denied');
+reset role;
+
+-- author and admin can delete, a different editor cannot
+insert into auth.users (id, email) values (gen_random_uuid(), 'fay@x.in');
+insert into public.family_members (family_id, user_id, role) select test.id('fam'), id, 'editor' from auth.users where email = 'fay@x.in';
+select test.login('fay@x.in');
+set role authenticated;
+delete from public.voice_memories where id = '22222222-2222-4222-8222-aaaaaaaaaaaa';
+delete from public.recipes;
+reset role;
+select test.must_count('select count(*) from public.voice_memories where id = ''22222222-2222-4222-8222-aaaaaaaaaaaa''', 1, 'another editor cannot delete my story');
+select test.must_count('select count(*) from public.recipes', 1, 'another editor cannot delete my recipe');
+select test.login('bob@x.in');   -- bob is an admin
+set role authenticated;
+delete from public.voice_memories where id = '22222222-2222-4222-8222-aaaaaaaaaaaa';
+reset role;
+select test.must_count('select count(*) from public.voice_memories where id = ''22222222-2222-4222-8222-aaaaaaaaaaaa''', 0, 'admin can remove a story');
+select test.login('dave@x.in');
+set role authenticated;
+delete from public.voice_memories;
+reset role;
+select test.must_count('select count(*) from public.voice_memories', 0, 'author can delete their own stories');
+-- deleting the photo takes its stories; deleting a person takes their album
+select test.must_count('select count(*) from public.person_photos', 1, 'album photo still there');
+
+\echo '16i. heritage storage buckets'
+select test.login('dave@x.in');
+set role authenticated;
+insert into storage.objects (bucket_id, name) values ('family-audio', test.id('fam') || '/' || test.id('lakshmi') || '/s.aac');
+insert into storage.objects (bucket_id, name) values ('family-album', test.id('fam') || '/recipes/r.webp');
+select test.must_count('select count(*) from storage.objects where bucket_id in (''family-audio'', ''family-album'')', 2, 'editor uploads audio and a recipe photo');
+select test.must_fail(format('insert into storage.objects (bucket_id, name) values (''family-audio'', %L)', test.id('fam_erin') || '/x/s.aac'), 'row-level security');
+select test.must_fail(format('insert into storage.objects (bucket_id, name) values (''family-album'', %L)', 'not-a-uuid/x.webp'), 'row-level security');
+reset role;
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_count('select count(*) from storage.objects where bucket_id in (''family-audio'', ''family-album'')', 2, 'viewer can fetch family files');
+select test.must_fail(format('insert into storage.objects (bucket_id, name) values (''family-audio'', %L)', test.id('fam') || '/x/v.aac'), 'row-level security');
+delete from storage.objects where bucket_id = 'family-audio';
+reset role;
+select test.must_count('select count(*) from storage.objects where bucket_id = ''family-audio''', 1, 'viewer cannot delete files');
+select test.login('erin@x.in');
+set role authenticated;
+select test.must_count('select count(*) from storage.objects where bucket_id in (''family-audio'', ''family-album'')', 0, 'another family cannot see the files');
+reset role;
+select test.login('fay@x.in');
+set role authenticated;
+delete from storage.objects where bucket_id = 'family-audio';
+reset role;
+select test.must_count('select count(*) from storage.objects where bucket_id = ''family-audio''', 1, 'another editor cannot delete my file');
+select test.login('dave@x.in');
+set role authenticated;
+delete from storage.objects where bucket_id = 'family-audio';
+reset role;
+select test.must_count('select count(*) from storage.objects where bucket_id = ''family-audio''', 0, 'uploader can delete their file');
+select test.must_count('select count(*) from storage.buckets where id in (''family-audio'', ''family-album'') and not public', 2, 'both buckets are private');
+
+\echo '16j. polls'
+select test.login('alice@x.in');
+set role authenticated;
+select test.put('fam_room', (select id from public.chat_rooms where family_id = test.id('fam') and kind = 'family'));
+select test.put('poll', public.create_poll(test.id('fam_room'), 'Pongal on Sunday or Monday?', array['Sunday', ' Monday ', 'sunday', '', 'Either']));
+select test.must_count(format('select count(*) from public.poll_options where poll_id = %L', test.id('poll')), 3, 'blank and repeated choices are dropped');
+select test.must_count(format('select count(*) from public.poll_options where poll_id = %L and label = ''Monday'' and position = 2', test.id('poll')), 1, 'choices are trimmed and keep their order');
+select test.must_count(format('select count(*) from public.chat_messages where poll_id = %L and body like ''%%Pongal%%''', test.id('poll')), 1, 'the poll appears in the chat');
+select test.must_fail(format('select public.create_poll(%L, ''Q'', array[''only one''])', test.id('fam_room')), '2 to 5');
+select test.must_fail(format('select public.create_poll(%L, ''Q'', array[''a'',''b'',''c'',''d'',''e'',''f''])', test.id('fam_room')), '2 to 5');
+select test.must_fail(format('select public.create_poll(%L, ''Q'', array[''same'',''SAME''])', test.id('fam_room')), '2 to 5');
+select test.must_fail(format('select public.create_poll(%L, '' '', array[''a'',''b''])', test.id('fam_room')), 'question');
+select test.must_fail(format('select public.create_poll(%L, ''Q'', array[''a'',''b''], now() - interval ''1 hour'')', test.id('fam_room')), 'closing time');
+select test.must_fail(format('select public.create_poll(%L, ''Q'', array[''a'', %L])', test.id('fam_room'), repeat('x', 81)), '80 letters');
+select test.must_fail(format('insert into public.polls (room_id, family_id, question, created_by) values (%L, %L, ''x'', auth.uid())', test.id('fam_room'), test.id('fam')), 'permission denied');
+select test.must_fail(format('insert into public.poll_votes (poll_id, user_id, option_id) values (%L, auth.uid(), (select id from public.poll_options limit 1))', test.id('poll')), 'permission denied');
+select test.put('opt_sun', (select id from public.poll_options where poll_id = test.id('poll') and label = 'Sunday'));
+select test.put('opt_mon', (select id from public.poll_options where poll_id = test.id('poll') and label = 'Monday'));
+select public.vote_poll(test.id('poll'), test.id('opt_sun'));
+reset role;
+select test.login('bob@x.in');
+set role authenticated;
+select public.vote_poll(test.id('poll'), test.id('opt_sun'));
+reset role;
+select test.login('carol@x.in');   -- a viewer is in the family room, so can vote
+set role authenticated;
+select public.vote_poll(test.id('poll'), test.id('opt_mon'));
+select test.must_count('select count(*) from public.poll_votes', 1, 'you can see only your own vote');
+select test.must_count(format('select votes from public.poll_options where id = %L', test.id('opt_sun')), 2, 'live count for Sunday');
+select test.must_count(format('select votes from public.poll_options where id = %L', test.id('opt_mon')), 1, 'live count for Monday');
+-- changing your vote moves it, the total stays the same
+select public.vote_poll(test.id('poll'), test.id('opt_sun'));
+select test.must_count(format('select sum(votes) from public.poll_options where poll_id = %L', test.id('poll')), 3, 'one vote per person, total unchanged');
+select test.must_count(format('select votes from public.poll_options where id = %L', test.id('opt_sun')), 3, 'moved to Sunday');
+select test.must_count(format('select votes from public.poll_options where id = %L', test.id('opt_mon')), 0, 'left Monday');
+reset role;
+
+-- not in the family, or not in the room: no polls
+select test.login('erin@x.in');
+set role authenticated;
+select test.must_count('select count(*) from public.polls', 0, 'another family sees no polls');
+select test.must_count('select count(*) from public.poll_options', 0, 'another family sees no choices');
+select test.must_fail(format('select public.vote_poll(%L, %L)', test.id('poll'), test.id('opt_sun')), 'not allowed');
+select test.must_fail(format('select public.create_poll(%L, ''Q'', array[''a'',''b''])', test.id('fam_room')), 'not allowed');
+select test.must_fail(format('select public.close_poll(%L)', test.id('poll')), 'only the person');
+reset role;
+select test.login('alice@x.in');
+set role authenticated;
+select test.put('grp_poll', public.create_poll(test.id('grp'), 'Who brings the sugarcane?', array['Me', 'Not me']));
+reset role;
+select test.login('dave@x.in');   -- an editor in the family, but not in the private group
+set role authenticated;
+select test.must_count(format('select count(*) from public.polls where id = %L', test.id('grp_poll')), 0, 'a private group poll is hidden from family members outside the group');
+select test.must_fail(format('select public.vote_poll(%L, (select id from public.poll_options where poll_id = %L limit 1))', test.id('grp_poll'), test.id('grp_poll')), 'not allowed');
+select test.must_count(format('select count(*) from public.polls where id = %L', test.id('poll')), 1, 'but they see the family room poll');
+select test.must_fail(format('select public.close_poll(%L)', test.id('grp_poll')), 'only the person');
+reset role;
+-- a choice from another poll is refused
+select test.login('bob@x.in');
+set role authenticated;
+select test.must_fail(format('select public.vote_poll(%L, (select id from public.poll_options where poll_id = %L limit 1))', test.id('poll'), test.id('grp_poll')), 'not in this poll');
+reset role;
+-- closing: the maker or an admin; viewers cannot
+select test.login('carol@x.in');
+set role authenticated;
+select test.must_fail(format('select public.close_poll(%L)', test.id('poll')), 'only the person');
+reset role;
+select test.login('bob@x.in');
+set role authenticated;
+select public.close_poll(test.id('poll'));
+select test.must_fail(format('select public.vote_poll(%L, %L)', test.id('poll'), test.id('opt_mon')), 'closed');
+reset role;
+select test.must_count(format('select votes from public.poll_options where id = %L', test.id('opt_sun')), 3, 'counts survive closing');
+update public.polls set closes_at = now() - interval '1 minute' where id = test.id('grp_poll');
+select test.login('alice@x.in');
+set role authenticated;
+select test.must_fail(format('select public.vote_poll(%L, (select id from public.poll_options where poll_id = %L limit 1))', test.id('grp_poll'), test.id('grp_poll')), 'closed');
+reset role;
+-- if a voter's account is deleted, their vote leaves the count
+delete from auth.users where email = 'carol@x.in';
+select test.must_count(format('select votes from public.poll_options where id = %L', test.id('opt_sun')), 2, 'deleting an account removes its vote from the count');
+select test.must_count('select count(*) from pg_publication_tables where pubname = ''supabase_realtime'' and tablename in (''poll_options'', ''polls'')', 2, 'poll counts are published live');
+
+\echo '16k. AI restore: 3 per family per day'
+select test.put('ph', '11111111-1111-4111-8111-aaaaaaaaaaaa');
+select test.login('dave@x.in');
+set role authenticated;
+select test.must_count(format('select count(*) from (select public.ai_restore_begin(%L) r) x where (r ->> ''allowed'')::boolean and (r ->> ''remaining'')::int = 2', test.id('ph')), 1, '1st restore leaves 2');
+select public.ai_restore_begin(test.id('ph'));
+select test.must_count(format('select count(*) from (select public.ai_restore_begin(%L) r) x where (r ->> ''allowed'')::boolean and (r ->> ''remaining'')::int = 0', test.id('ph')), 1, '3rd restore leaves 0');
+select test.must_count(format('select count(*) from (select public.ai_restore_begin(%L) r) x where not (r ->> ''allowed'')::boolean and r ->> ''reason'' = ''daily_limit''', test.id('ph')), 1, '4th restore is refused');
+select test.must_count(format('select (public.ai_restore_status(%L) ->> ''remaining'')::int', test.id('fam')), 0, 'status says none left');
+reset role;
+select test.login('erin@x.in');   -- another family: its own allowance, and no access to ours
+set role authenticated;
+select test.must_fail(format('select public.ai_restore_begin(%L)', test.id('ph')), 'not allowed');
+select test.must_fail(format('select public.ai_restore_status(%L)', test.id('fam')), 'not allowed');
+reset role;
+insert into public.person_photos (id, family_id, person_id, path) values ('44444444-4444-4444-8444-aaaaaaaaaaaa', test.id('fam_erin'), test.id('erin_node'), test.id('fam_erin') || '/p/e.webp');
+select test.login('erin@x.in');
+set role authenticated;
+select test.must_count('select count(*) from (select public.ai_restore_begin(''44444444-4444-4444-8444-aaaaaaaaaaaa'') r) x where (r ->> ''allowed'')::boolean and (r ->> ''remaining'')::int = 2', 1, 'another family still has all 3');
+reset role;
+select test.login('fay@x.in');   -- fay is in the first family: shares its limit
+set role authenticated;
+select test.must_count(format('select count(*) from (select public.ai_restore_begin(%L) r) x where not (r ->> ''allowed'')::boolean', test.id('ph')), 1, 'the limit belongs to the family, not the person');
+reset role;
+select test.login('bob@x.in');
+set role authenticated;
+select test.must_fail('select public.ai_restore_finish(1, true)', 'permission denied');
+reset role;
+select test.must_count('select (has_function_privilege(''service_role'', ''public.ai_restore_finish(bigint,boolean,uuid)'', ''execute'') and not has_function_privilege(''authenticated'', ''public.ai_restore_finish(bigint,boolean,uuid)'', ''execute''))::int', 1, 'only the Edge Function can finish a run');
+-- a failed run gives the slot back
+select public.ai_restore_finish((select max(id) from app.ai_restore_log where family_id = test.id('fam')), false, null);
+select test.login('dave@x.in');
+set role authenticated;
+select test.must_count(format('select count(*) from (select public.ai_restore_begin(%L) r) x where (r ->> ''allowed'')::boolean', test.id('ph')), 1, 'a failed restore does not use up the day');
+reset role;
+-- yesterday does not count
+update app.ai_restore_log set at = at - interval '2 days' where family_id = test.id('fam');
+select test.login('dave@x.in');
+set role authenticated;
+select test.must_count(format('select (public.ai_restore_status(%L) ->> ''remaining'')::int', test.id('fam')), 3, 'a new day starts with 3');
+reset role;
+-- a run that never finished frees its slot after 10 minutes
+update app.ai_restore_log set at = now() - interval '20 minutes', status = 'started' where family_id = test.id('fam');
+select test.login('dave@x.in');
+set role authenticated;
+select test.must_count(format('select (public.ai_restore_status(%L) ->> ''remaining'')::int', test.id('fam')), 3, 'stuck runs do not block the family');
+reset role;
+
+\echo '16l. tree data: Tamil names and native place'
+update public.persons set name_native = 'லட்சுமி' where id = test.id('lakshmi');
+select test.login('alice@x.in');
+set role authenticated;
+select test.must_count(format('select count(*) from (select public.family_graph(%L) g) x where (g -> ''persons'') @> ''[{"nt":"லட்சுமி"}]''::jsonb', test.id('fam')), 1, 'graph carries the Tamil name');
+select test.put('np_kid', public.add_relative(test.id('alice_node'), 'child', '{"full_name":"Nadu Kid","native_place":"  Madurai "}'));
+select test.must_count(format('select count(*) from public.persons where id = %L and native_place = ''Madurai''', test.id('np_kid')), 1, 'native place saved, trimmed, when adding a relative');
+reset role;
+
 \echo '17. owner deletes family, everything cascades'
 select test.login('alice@x.in');
 set role authenticated;

@@ -8,6 +8,8 @@ export interface Msg {
   created_at: string;
   edited_at: string | null;
   deleted_at: string | null;
+  /** Set when this message is a poll card. */
+  poll_id?: string | null;
   /** Only on this phone: not confirmed by the server yet. */
   state?: "sending" | "failed";
 }

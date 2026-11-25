@@ -70,6 +70,7 @@ export type Database = {
           deleted_at: string | null
           edited_at: string | null
           id: string
+          poll_id: string | null
           reply_to: string | null
           room_id: string
           sender_id: string
@@ -81,6 +82,7 @@ export type Database = {
           deleted_at?: string | null
           edited_at?: string | null
           id?: string
+          poll_id?: string | null
           reply_to?: string | null
           room_id: string
           sender_id?: string
@@ -92,11 +94,19 @@ export type Database = {
           deleted_at?: string | null
           edited_at?: string | null
           id?: string
+          poll_id?: string | null
           reply_to?: string | null
           room_id?: string
           sender_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "chat_messages_poll_id_fkey"
+            columns: ["poll_id"]
+            isOneToOne: false
+            referencedRelation: "polls"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "chat_messages_reply_to_fkey"
             columns: ["reply_to"]
@@ -626,6 +636,67 @@ export type Database = {
           },
         ]
       }
+      person_photos: {
+        Row: {
+          caption: string | null
+          created_at: string
+          created_by: string | null
+          family_id: string
+          id: string
+          kind: string
+          path: string
+          person_id: string
+          source_id: string | null
+          year: number | null
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          created_by?: string | null
+          family_id: string
+          id?: string
+          kind?: string
+          path: string
+          person_id: string
+          source_id?: string | null
+          year?: number | null
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          created_by?: string | null
+          family_id?: string
+          id?: string
+          kind?: string
+          path?: string
+          person_id?: string
+          source_id?: string | null
+          year?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "person_photos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "person_photos_family_id_person_id_fkey"
+            columns: ["family_id", "person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["family_id", "id"]
+          },
+          {
+            foreignKeyName: "person_photos_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "person_photos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       person_private_fields: {
         Row: {
           family_id: string
@@ -774,6 +845,129 @@ export type Database = {
           },
         ]
       }
+      poll_options: {
+        Row: {
+          id: string
+          label: string
+          poll_id: string
+          position: number
+          votes: number
+        }
+        Insert: {
+          id?: string
+          label: string
+          poll_id: string
+          position: number
+          votes?: number
+        }
+        Update: {
+          id?: string
+          label?: string
+          poll_id?: string
+          position?: number
+          votes?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_options_poll_id_fkey"
+            columns: ["poll_id"]
+            isOneToOne: false
+            referencedRelation: "polls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      poll_votes: {
+        Row: {
+          option_id: string
+          poll_id: string
+          user_id: string
+          voted_at: string
+        }
+        Insert: {
+          option_id: string
+          poll_id: string
+          user_id: string
+          voted_at?: string
+        }
+        Update: {
+          option_id?: string
+          poll_id?: string
+          user_id?: string
+          voted_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "poll_votes_poll_id_option_id_fkey"
+            columns: ["poll_id", "option_id"]
+            isOneToOne: false
+            referencedRelation: "poll_options"
+            referencedColumns: ["poll_id", "id"]
+          },
+          {
+            foreignKeyName: "poll_votes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      polls: {
+        Row: {
+          closed_at: string | null
+          closes_at: string | null
+          created_at: string
+          created_by: string
+          family_id: string
+          id: string
+          question: string
+          room_id: string
+        }
+        Insert: {
+          closed_at?: string | null
+          closes_at?: string | null
+          created_at?: string
+          created_by: string
+          family_id: string
+          id?: string
+          question: string
+          room_id: string
+        }
+        Update: {
+          closed_at?: string | null
+          closes_at?: string | null
+          created_at?: string
+          created_by?: string
+          family_id?: string
+          id?: string
+          question?: string
+          room_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "polls_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "polls_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "polls_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "chat_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       private_field_grants: {
         Row: {
           created_at: string
@@ -856,6 +1050,70 @@ export type Database = {
         }
         Relationships: []
       }
+      recipes: {
+        Row: {
+          created_at: string
+          created_by: string
+          family_id: string
+          id: string
+          ingredients: string
+          person_id: string | null
+          photo_path: string | null
+          steps: string
+          title: string
+          title_native: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          family_id: string
+          id?: string
+          ingredients?: string
+          person_id?: string | null
+          photo_path?: string | null
+          steps?: string
+          title: string
+          title_native?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          family_id?: string
+          id?: string
+          ingredients?: string
+          person_id?: string | null
+          photo_path?: string | null
+          steps?: string
+          title?: string
+          title_native?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipes_family_id_fkey"
+            columns: ["family_id"]
+            isOneToOne: false
+            referencedRelation: "families"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipes_family_id_person_id_fkey"
+            columns: ["family_id", "person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["family_id", "id"]
+          },
+        ]
+      }
       unions: {
         Row: {
           created_at: string
@@ -917,6 +1175,64 @@ export type Database = {
           },
         ]
       }
+      voice_memories: {
+        Row: {
+          audio_path: string
+          author_id: string
+          created_at: string
+          duration_sec: number
+          family_id: string
+          id: string
+          person_id: string
+          photo_id: string | null
+          title: string | null
+        }
+        Insert: {
+          audio_path: string
+          author_id?: string
+          created_at?: string
+          duration_sec: number
+          family_id: string
+          id?: string
+          person_id: string
+          photo_id?: string | null
+          title?: string | null
+        }
+        Update: {
+          audio_path?: string
+          author_id?: string
+          created_at?: string
+          duration_sec?: number
+          family_id?: string
+          id?: string
+          person_id?: string
+          photo_id?: string | null
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "voice_memories_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "voice_memories_family_id_person_id_fkey"
+            columns: ["family_id", "person_id"]
+            isOneToOne: false
+            referencedRelation: "persons"
+            referencedColumns: ["family_id", "id"]
+          },
+          {
+            foreignKeyName: "voice_memories_family_id_photo_id_fkey"
+            columns: ["family_id", "photo_id"]
+            isOneToOne: false
+            referencedRelation: "person_photos"
+            referencedColumns: ["family_id", "id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -927,6 +1243,13 @@ export type Database = {
         Args: { p_anchor: string; p_person: Json; p_relation: string }
         Returns: string
       }
+      ai_restore_begin: { Args: { p_photo_id: string }; Returns: Json }
+      ai_restore_finish: {
+        Args: { p_log_id: number; p_ok: boolean; p_result?: string }
+        Returns: undefined
+      }
+      ai_restore_status: { Args: { p_family_id: string }; Returns: Json }
+      close_poll: { Args: { p_poll_id: string }; Returns: undefined }
       create_family: {
         Args: {
           p_name: string
@@ -950,6 +1273,15 @@ export type Database = {
         }
         Returns: string
       }
+      create_poll: {
+        Args: {
+          p_closes_at?: string
+          p_options: string[]
+          p_question: string
+          p_room_id: string
+        }
+        Returns: string
+      }
       export_family: { Args: { p_family_id: string }; Returns: Json }
       family_graph: { Args: { p_family_id: string }; Returns: Json }
       import_family_data: {
@@ -967,6 +1299,11 @@ export type Database = {
         }[]
       }
       merge_persons: { Args: { p_request_id: string }; Returns: string }
+      sms_rate_check: { Args: { p_phone: string }; Returns: Json }
+      vote_poll: {
+        Args: { p_option_id: string; p_poll_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       chat_room_kind_t: "family" | "group"

@@ -19,6 +19,8 @@ export interface GPerson {
   state: string | null;
   /** Native place (oor). */
   np?: string | null;
+  /** Name in Tamil (native script), if the family wrote one. */
+  nt?: string | null;
   /** How exactly the death date is known. */
   dodp?: Enums<"date_precision_t">;
 }

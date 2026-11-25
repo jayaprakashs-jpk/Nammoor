@@ -8,6 +8,9 @@ export type ModuleId =
   | "chat"
   | "invites"
   | "backup"
+  | "recipes"
+  | "print"
+  | "merge"
   | "security"
   | "events"
   | "calendar"
@@ -30,6 +33,9 @@ export const MODULES: readonly ModuleInfo[] = [
   { id: "chat", label: "Family Chat", labelTa: "குடும்ப அரட்டை", route: "/chat/", phase: 1, enabled: true, showInNav: true },
   { id: "invites", label: "Invite", labelTa: "அழைப்பு", route: "/invite/", phase: 1, enabled: true, showInNav: false },
   { id: "backup", label: "Backup", labelTa: "காப்புப்பிரதி", route: "/backup/", phase: 1, enabled: true, showInNav: false },
+  { id: "recipes", label: "Recipes", labelTa: "குடும்ப சமையல்", route: "/recipes/", phase: 1, enabled: true, showInNav: false },
+  { id: "print", label: "Print & share", labelTa: "அச்சிடு", route: "/print/", phase: 1, enabled: true, showInNav: false },
+  { id: "merge", label: "Merge requests", labelTa: "இணைப்பு கோரிக்கைகள்", route: "/merge/", phase: 1, enabled: true, showInNav: false },
   { id: "security", label: "Security", labelTa: "பாதுகாப்பு", route: "/security/", phase: 1, enabled: true, showInNav: false },
   { id: "events", label: "Functions", labelTa: "விழாக்கள்", route: "/events/", phase: 2, enabled: false, showInNav: true },
   { id: "calendar", label: "Calendar", labelTa: "நாட்காட்டி", route: "/calendar/", phase: 2, enabled: false, showInNav: true },
